@@ -17,9 +17,11 @@ const firebaseConfig: FirebaseOptions = {
 // Validate that essential configuration, like apiKey, is present.
 if (!firebaseConfig.apiKey) {
   throw new Error(
-    "Firebase configuration error: NEXT_PUBLIC_FIREBASE_API_KEY is missing, empty, or not loaded. " +
-    "Please check your .env.local file (at the project root) and ensure it is correctly set (e.g., NEXT_PUBLIC_FIREBASE_API_KEY=yourkey). " +
-    "IMPORTANT: You MUST restart your Next.js development server after creating or modifying the .env.local file."
+    "Firebase configuration error: The environment variable NEXT_PUBLIC_FIREBASE_API_KEY was not found or is empty. " +
+    "This is critical for Firebase initialization. Please follow these steps:\n" +
+    "1. Ensure a '.env.local' file exists at your project root (the same directory as package.json).\n" +
+    "2. Verify it contains the line: NEXT_PUBLIC_FIREBASE_API_KEY=your_actual_api_key (and other NEXT_PUBLIC_ Firebase keys).\n" +
+    "3. CRITICAL: You MUST restart your Next.js development server after creating or modifying the .env.local file for changes to take effect. Stop the server (Ctrl+C) and run 'npm run dev' (or your start command) again."
   );
 }
 // You can add similar checks for other critical variables like projectId if they also cause startup failures.
@@ -44,4 +46,3 @@ const db = getFirestore(app);
 const realtimeDb = getDatabase(app);
 
 export { app, auth, db, realtimeDb };
-
