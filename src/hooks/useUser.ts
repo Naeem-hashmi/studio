@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -18,16 +19,21 @@ export function useUser() {
       try {
         const profile = await getUserProfile(firebaseUser.uid);
         setGameUser(profile);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to fetch user profile");
-        console.error(e);
+      } catch (e: unknown) {
+        if (e instanceof Error) {
+          setError(e.message);
+        } else {
+          setError("An unknown error occurred while fetching user profile.");
+        }
+        console.error("fetchUserProfile error:", e);
+        setGameUser(null); // Ensure gameUser is null on error
       } finally {
         setLoading(false);
       }
     } else if (!authLoading) {
-      // No firebaseUser and auth is not loading anymore
       setGameUser(null);
       setLoading(false);
+      setError(null); // Clear error if auth state changes to no user
     }
   }, [firebaseUser, authLoading]);
 

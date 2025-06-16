@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect } from "react";
@@ -12,7 +13,7 @@ import Image from "next/image";
 
 export default function HomePage() {
   const { user: firebaseUser, loading: authLoading } = useAuth();
-  const { gameUser, loading: userLoading, error: userError } = useUser();
+  const { gameUser, loading: userLoading, error: userError, refreshUserProfile } = useUser(); // Added refreshUserProfile
   const router = useRouter();
 
   useEffect(() => {
@@ -31,38 +32,46 @@ export default function HomePage() {
   }
 
   if (!firebaseUser) {
-    // Should be caught by useEffect, but as a fallback
-    return <div className="text-center py-10"><p>Redirecting to login...</p></div>;
+    // This state should ideally be caught by the useEffect redirect.
+    // If reached, it means auth is resolved, no user, but redirect hasn't happened.
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
+        <p className="text-lg text-foreground">Redirecting to login...</p>
+      </div>
+    );
   }
   
   if (userError) {
      return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8">
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-8">
         <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
         <h2 className="text-2xl font-semibold text-destructive mb-2">Error Loading Profile</h2>
         <p className="text-muted-foreground mb-4">{userError}</p>
-        <Button onClick={() => window.location.reload()}>Try Again</Button>
+        <Button onClick={() => refreshUserProfile()}>Try Again</Button> 
       </div>
     );
   }
 
+  // If firebaseUser exists but gameUser is still null (and no error, and not loading),
+  // it implies the profile might be in the process of creation or just created and needs a re-fetch.
   if (!gameUser) {
     return (
        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
         <p className="text-lg text-foreground">Finalizing profile setup...</p>
+        {/* Optional: Add a refresh button if it gets stuck too long, though useUser should handle it */}
+        {/* <Button onClick={refreshUserProfile} className="mt-4">Refresh Profile</Button> */}
       </div>
     );
   }
   
   const isInRecovery = gameUser.inRecoveryMode;
 
-
   return (
     <div className="container mx-auto px-4 py-8">
       <header className="mb-10 text-center">
         <h1 className="text-4xl font-bold text-primary mb-2">
-          Welcome, Commander {gameUser.displayName}!
+          Welcome, Commander {gameUser.displayName || "Valued Player"}!
         </h1>
         <p className="text-lg text-foreground/80">
           Your forces await your command. Choose your path to victory.
@@ -99,7 +108,7 @@ export default function HomePage() {
           icon={<Bot className="h-10 w-10 text-accent" />}
           link="/training"
           actionText="Start Training"
-          disabled={false} // Training is always available
+          disabled={false} 
           ariaLabel="Start Training Mode against AI"
         />
         <GameModeCard

@@ -1,8 +1,9 @@
+
 "use server";
 import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { GameUser } from "@/types";
-import type { User as FirebaseUserType } from "firebase/auth"; // Renamed to avoid conflict if GameUser was named User
+import type { User as FirebaseUserType } from "firebase/auth";
 
 const USER_COLLECTION = "users";
 
@@ -11,13 +12,30 @@ export async function getUserProfile(userId: string): Promise<GameUser | null> {
     const userDocRef = doc(db, USER_COLLECTION, userId);
     const userDocSnap = await getDoc(userDocRef);
     if (userDocSnap.exists()) {
-      return userDocSnap.data() as GameUser; // Assumes data in Firestore matches GameUser structure
+      // Ensure data conforms to GameUser, especially if there's old data
+      const data = userDocSnap.data();
+      return {
+        uid: data.uid || userId,
+        email: data.email || null,
+        displayName: data.displayName || "Anonymous Warlord",
+        photoURL: data.photoURL || null,
+        gold: data.gold || 0, // Provide defaults for crucial fields
+        military: data.military || 0,
+        resources: data.resources || 0,
+        attackLevel: data.attackLevel || 1,
+        defenseLevel: data.defenseLevel || 1,
+        wins: data.wins || 0,
+        losses: data.losses || 0,
+        inRecoveryMode: data.inRecoveryMode || false,
+        recoveryProgress: data.recoveryProgress || { successfulAttacks: 0, successfulDefenses: 0 },
+        rank: data.rank || undefined,
+        xp: data.xp || undefined,
+        ...data // Spread last to overwrite defaults with actual data if present
+      } as GameUser;
     }
     return null;
   } catch (error) {
     console.error("Error fetching user profile:", error);
-    // Consider not throwing a generic error here, or making it more specific,
-    // so UI can distinguish between "not found" and "failed to fetch"
     throw new Error("Failed to fetch user profile due to a server error.");
   }
 }
@@ -28,20 +46,20 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
     const existingProfileSnap = await getDoc(userProfileRef);
 
     if (existingProfileSnap.exists()) {
-      // Profile exists, update relevant fields from FirebaseUser if they can change
       const updatedData: Partial<GameUser> = {
-        displayName: firebaseUser.displayName || "Anonymous Warlord",
-        email: firebaseUser.email || null, // Ensure email matches GameUser type (string | null)
-        photoURL: firebaseUser.photoURL || null, // Ensure photoURL matches GameUser type (string | undefined | null)
-        // Do not update game-specific stats like gold, wins etc. here unless intended
+        displayName: firebaseUser.displayName || existingProfileSnap.data()?.displayName || "Anonymous Warlord",
+        email: firebaseUser.email || existingProfileSnap.data()?.email || null,
+        photoURL: firebaseUser.photoURL || existingProfileSnap.data()?.photoURL || null,
+        // Do not reset game-specific stats here, only update auth-related fields
       };
       await updateDoc(userProfileRef, updatedData);
-      const updatedSnap = await getDoc(userProfileRef);
-      // Ensure the returned object conforms to GameUser, merging existing game data with updated auth data
-      return { ...existingProfileSnap.data(), ...updatedData } as GameUser;
+      const updatedSnap = await getDoc(userProfileRef); // Re-fetch the document after update
+      if (!updatedSnap.exists()) { // Should not happen, but good to check
+        throw new Error("Failed to retrieve profile after update.");
+      }
+      return updatedSnap.data() as GameUser; // Return the fresh data
     }
 
-    // Profile doesn't exist, create a new one
     const newUserProfile: GameUser = {
       uid: firebaseUser.uid,
       email: firebaseUser.email || null,
@@ -59,23 +77,22 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
         successfulAttacks: 0,
         successfulDefenses: 0,
       },
-      // rank and xp can be initialized if/when needed
     };
     await setDoc(userProfileRef, newUserProfile);
     return newUserProfile;
   } catch (error) {
     console.error("Error creating or updating user profile:", error);
-    throw new Error("Failed to create or update user profile.");
+    if (error instanceof Error) {
+      throw new Error(`Failed to create or update user profile: ${error.message}`);
+    }
+    throw new Error("Failed to create or update user profile due to an unknown server error.");
   }
 }
 
 export async function updateUserProfile(userId: string, data: Partial<GameUser>): Promise<void> {
   try {
     const userDocRef = doc(db, USER_COLLECTION, userId);
-    // Example: add an 'updatedAt' timestamp if your GameUser type has it
-    // const dataWithTimestamp = { ...data, updatedAt: serverTimestamp() };
-    // await updateDoc(userDocRef, dataWithTimestamp);
-    await updateDoc(userDocRef, data); // Pass only the partial data to update
+    await updateDoc(userDocRef, data);
   } catch (error) {
     console.error("Error updating user profile:", error);
     throw new Error("Failed to update user profile.");
