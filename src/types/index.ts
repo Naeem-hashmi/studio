@@ -1,7 +1,12 @@
-import type { User as FirebaseUser } from "firebase/auth";
 
-export interface GameUser extends FirebaseUser {
-  // FirebaseUser already has uid, email, displayName, photoURL
+// Removed "extends FirebaseUser" from GameUser interface
+// FirebaseUser related fields like uid, email, displayName, photoURL are explicitly defined.
+
+export interface GameUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL?: string | null; // Make consistent with firebaseUser.photoURL (can be null)
   gold: number;
   military: number;
   resources: number;
