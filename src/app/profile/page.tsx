@@ -130,12 +130,12 @@ export default function ProfilePage() {
   const winRate = totalGames > 0 ? Math.round((gameUser.wins / totalGames) * 100) : 0;
 
   return (
-    <div className="container mx-auto px-2 py-6 sm:px-4 sm:py-12">
+    <div className="container mx-auto px-2 py-6 sm:px-4 sm:py-8"> {/* Adjusted py for sm */}
       <Card className="w-full max-w-3xl mx-auto shadow-xl border-primary/20 overflow-hidden bg-card">
         <CardHeader className="bg-primary/10 p-4 md:p-6">
           <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:space-x-4 space-y-3 sm:space-y-0">
             <Avatar className="h-20 w-20 md:h-24 md:w-24 border-4 border-background shadow-lg">
-              <AvatarImage src={firebaseUser?.photoURL || undefined} alt={gameUser.displayName || "User"} />
+              <AvatarImage src={firebaseUser?.photoURL || undefined} alt={gameUser.displayName || "User avatar"} />
               <AvatarFallback className="text-3xl md:text-4xl bg-primary/30 text-primary-foreground">
                 {gameUser.displayName ? gameUser.displayName.charAt(0).toUpperCase() : <UserCircle size={48}/>}
               </AvatarFallback>
@@ -185,8 +185,8 @@ export default function ProfilePage() {
               </div>
               <CardDescription className="text-sm md:text-base text-foreground/80">{firebaseUser?.email}</CardDescription>
               {gameUser.inRecoveryMode && (
-                <p className="text-xs md:text-sm font-semibold text-destructive mt-1 p-1 px-2 bg-destructive/10 rounded-md inline-block">
-                  <AlertTriangle className="inline h-4 w-4 mr-1" /> In Recovery Mode
+                <p className="text-xs md:text-sm font-semibold text-destructive mt-1 p-1 px-2 bg-destructive/10 rounded-md inline-block" aria-label="Account status: In Recovery Mode">
+                  <AlertTriangle className="inline h-4 w-4 mr-1" aria-hidden="true" /> <span aria-hidden="true">In Recovery Mode</span>
                 </p>
               )}
             </div>
@@ -196,7 +196,7 @@ export default function ProfilePage() {
         <CardContent className="p-4 md:p-6 space-y-6">
           <section aria-labelledby="battle-stats-heading">
             <h3 id="battle-stats-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
-              <BarChart3 className="mr-2 h-5 w-5" />
+              <BarChart3 className="mr-2 h-5 w-5" aria-hidden="true" />
               Battle Statistics
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
@@ -207,7 +207,7 @@ export default function ProfilePage() {
             {totalGames > 0 && (
                  <div className="mt-3">
                     <Label htmlFor="win-loss-progress" className="text-xs font-medium text-muted-foreground">Overall Performance</Label>
-                    <Progress id="win-loss-progress" value={winRate} className="w-full h-2.5 mt-1 [&>div]:bg-gradient-to-r [&>div]:from-green-500 [&>div]:to-blue-500" aria-label={`Win rate ${winRate} percent`}/>
+                    <Progress id="win-loss-progress" value={winRate} className="w-full h-2.5 mt-1 [&>div]:bg-gradient-to-r [&>div]:from-green-500 [&>div]:to-blue-500" aria-label={`Overall performance: Win rate ${winRate} percent`}/>
                  </div>
             )}
           </section>
@@ -216,13 +216,13 @@ export default function ProfilePage() {
 
           <section aria-labelledby="current-resources-heading">
             <h3 id="current-resources-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
-              <Package className="mr-2 h-5 w-5" />
+              <Package className="mr-2 h-5 w-5" aria-hidden="true" />
               Current Resources
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-              <ResourceCard icon={<DollarSign className="text-yellow-500" />} label="Gold" value={gameUser.gold} maxValue={10000} /> 
-              <ResourceCard icon={<ShieldCheck className="text-red-500" />} label="Military Units" value={gameUser.military} maxValue={10000} />
-              <ResourceCard icon={<Package className="text-green-500" />} label="Supplies" value={gameUser.resources} maxValue={10000} />
+            <div className="grid grid-cols-3 gap-2 sm:gap-3"> {/* Always 3 columns, smaller gap for mobile */}
+              <ResourceItem icon={<DollarSign className="text-yellow-500" />} label="Gold" value={gameUser.gold} />
+              <ResourceItem icon={<ShieldCheck className="text-red-500" />} label="Military" value={gameUser.military} /> {/* Label simplified */}
+              <ResourceItem icon={<Package className="text-green-500" />} label="Supplies" value={gameUser.resources} />
             </div>
           </section>
           
@@ -230,7 +230,7 @@ export default function ProfilePage() {
 
           <section aria-labelledby="arsenal-levels-heading">
             <h3 id="arsenal-levels-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
-              <Sword className="mr-2 h-5 w-5" />
+              <Sword className="mr-2 h-5 w-5" aria-hidden="true" />
               Arsenal Levels
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
@@ -244,7 +244,7 @@ export default function ProfilePage() {
             <Separator/>
             <section aria-labelledby="recovery-progress-heading">
                 <h3 id="recovery-progress-heading" className="text-lg md:text-xl font-semibold text-destructive mb-3 flex items-center">
-                <AlertTriangle className="mr-2 h-5 w-5" />
+                <AlertTriangle className="mr-2 h-5 w-5" aria-hidden="true" />
                 Recovery Progress
                 </h3>
                 <div className="space-y-2.5">
@@ -269,8 +269,8 @@ export default function ProfilePage() {
 
 interface StatCardProps { icon: React.ReactNode; label: string; value: string | number; }
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => (
-  <div 
-    className="bg-card p-3 rounded-lg shadow-md flex items-center space-x-2.5 border border-border hover:border-primary/50 transition-colors"
+  <div
+    className="bg-background p-3 rounded-lg shadow-sm flex items-center space-x-2.5 border border-border hover:border-primary/50 transition-colors"
     role="figure"
     aria-label={`${label}: ${value}`}
   >
@@ -282,52 +282,50 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => (
   </div>
 );
 
-interface ResourceCardProps { icon: React.ReactNode; label: string; value: number; maxValue: number; }
-const ResourceCard: React.FC<ResourceCardProps> = ({ icon, label, value, maxValue }) => (
-  <div 
-    className="bg-card p-3 rounded-lg shadow-md border border-border hover:border-primary/50 transition-colors"
+interface ResourceItemProps { // Renamed from ResourceCardProps and simplified
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+}
+const ResourceItem: React.FC<ResourceItemProps> = ({ icon, label, value }) => (
+  <div
+    className="bg-background p-2 sm:p-3 rounded-lg shadow-sm flex flex-col items-center text-center space-y-1 border border-border"
     role="figure"
-    aria-label={`${label}: ${value} out of ${maxValue}`}
+    aria-label={`${label}: ${value}`}
   >
-    <div className="flex items-center justify-between mb-1" aria-hidden="true">
-        <div className="flex items-center space-x-1.5">
-            {React.cloneElement(icon as React.ReactElement, { className: (icon as React.ReactElement).props.className + " h-4 w-4" })}
-            <p className="text-sm md:text-base font-medium text-foreground">{label}</p>
-        </div>
-        <p className="text-base md:text-lg font-bold text-primary">{value}</p>
+    <div className="p-1.5 bg-primary/10 rounded-full" aria-hidden="true">
+      {React.cloneElement(icon as React.ReactElement, { className: ((icon as React.ReactElement).props.className || "") + " h-5 w-5 sm:h-6 sm:w-6" })}
     </div>
-    <Progress 
-        value={maxValue > 0 ? (value / maxValue) * 100 : 0} 
-        className="h-1.5 w-full" 
-        aria-hidden="true"
-    />
-    <p className="text-xs text-muted-foreground text-right mt-0.5" aria-hidden="true">{value} / {maxValue}</p>
+    <p className="text-base sm:text-lg font-bold text-primary" aria-hidden="true">{value}</p>
+    <p className="text-xs text-muted-foreground" aria-hidden="true">{label}</p>
   </div>
 );
 
 interface LevelCardProps { icon: React.ReactNode; label: string; value: number; maxLevel: number; }
 const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) => (
-  <div 
-    className="bg-card p-3 rounded-lg shadow-md border border-border hover:border-primary/50 transition-colors"
+  <div
+    className="bg-background p-3 rounded-lg shadow-sm border border-border hover:border-primary/50 transition-colors" // Changed from bg-card to bg-background for consistency
     role="figure"
-    aria-label={`${label}: Level ${value}${value < maxLevel ? `. Progress to level ${value + 1}. Upgrade costs available on Home screen.` : '. Maximum Level Reached.'}`}
+    aria-label={`${label}: Level ${value} out of ${maxLevel}.${value < maxLevel ? ` Progress to level ${value + 1}. Upgrade costs available on Home screen.` : ' Maximum Level Reached.'}`}
   >
     <div className="flex items-center space-x-2.5 mb-1.5" aria-hidden="true">
        <div className="p-1.5 bg-accent/10 rounded-full">
-         {React.cloneElement(icon as React.ReactElement, { className: (icon as React.ReactElement).props.className + " h-4 w-4" })}
+         {React.cloneElement(icon as React.ReactElement, { className: ((icon as React.ReactElement).props.className || "") + " h-4 w-4" })}
        </div>
       <div>
         <p className="text-sm md:text-base font-medium text-foreground">{label}</p>
         <p className="text-lg md:text-xl font-semibold text-accent">Level {value}</p>
       </div>
     </div>
-    <Progress 
-        value={(value / maxLevel) * 100} 
-        className="h-1.5 w-full [&>div]:bg-accent" 
+    <Progress
+        value={(value / maxLevel) * 100}
+        className="h-1.5 w-full [&>div]:bg-accent"
         aria-hidden="true"
     />
      <p className="text-xs text-muted-foreground text-right mt-0.5" aria-hidden="true">
-       {value < maxLevel ? `Progress to Lvl ${value + 1}` : "MAX Level"}
+       {value < maxLevel ? `Lvl ${value} / ${maxLevel}` : "MAX Level"}
      </p>
   </div>
 );
+
+    
