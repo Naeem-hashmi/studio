@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -7,7 +8,7 @@ import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { createUserProfile } from "@/lib/firestoreActions"; // Server Action
+// createUserProfile is no longer called here
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
@@ -31,8 +32,12 @@ export default function LoginPage() {
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   useEffect(() => {
+    // If user is already authenticated (e.g. session persisted),
+    // they might need to go to setup or home.
+    // For simplicity, if they have a user object, assume they should be past login.
+    // The /setup-profile or /home page will handle their actual profile state.
     if (!authLoading && user) {
-      router.replace("/home");
+      router.replace("/home"); // Or check if they need to go to /setup-profile
     }
   }, [user, authLoading, router]);
 
@@ -41,12 +46,12 @@ export default function LoginPage() {
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      await createUserProfile(result.user); // Ensure profile exists or is created
+      // Instead of creating profile here, redirect to a setup page
       toast({
         title: "Login Successful",
-        description: `Welcome back, ${result.user.displayName || "Commander"}!`,
+        description: `Welcome, ${result.user.displayName || "Commander"}! Let's set up your profile.`,
       });
-      router.push("/home"); // Redirect after successful login and profile creation
+      router.push("/setup-profile"); 
     } catch (error: any) {
       console.error("Google Sign-In Error:", error);
       toast({
@@ -59,7 +64,8 @@ export default function LoginPage() {
     }
   };
 
-  if (authLoading || user) { // If auth is loading or user is already logged in, show loader
+  if (authLoading || (!authLoading && user)) { 
+    // If auth is loading OR user is already authed (and useEffect is redirecting), show loader.
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-background to-secondary">
         <Loader2 className="h-12 w-12 animate-spin text-primary" />
@@ -67,6 +73,7 @@ export default function LoginPage() {
     );
   }
 
+  // Only render login form if not loading and no user (meaning they need to log in)
   return (
     <div className="flex items-center justify-center min-h-screen p-4 bg-gradient-to-br from-background to-secondary/30">
       <Card className="w-full max-w-md shadow-2xl border-primary/30">
