@@ -18,14 +18,14 @@ import { joinRoom as joinRoomAction } from "@/lib/firestoreActions";
 
 export default function RoomsPage() {
   const { user: firebaseUser, loading: authLoading } = useAuth();
-  const { gameUser, loading: userLoading } = useUser();
+  const { gameUser, loading: userLoading, error: userErrorHook } = useUser(); // Renamed userError to userErrorHook
   const router = useRouter();
   const { toast } = useToast();
 
   const [isCreateRoomOpen, setIsCreateRoomOpen] = useState(false);
   const [publicRooms, setPublicRooms] = useState<Room[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
-  const [roomsError, setRoomsError] = useState<string | null>(null);
+  const [roomsError, setRoomsError] = useState<string | null>(null); // For room fetching errors
   const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,7 +35,10 @@ export default function RoomsPage() {
   }, [firebaseUser, authLoading, router]);
 
   useEffect(() => {
-    if (!firebaseUser) return; // Don't try to fetch rooms if user is not authenticated
+    if (!firebaseUser) { // Don't try to fetch rooms if user is not authenticated
+      setRoomsLoading(false); // Not loading if no user
+      return;
+    }
 
     setRoomsLoading(true);
     const roomsCollectionRef = collection(db, "rooms");
@@ -69,7 +72,7 @@ export default function RoomsPage() {
 
   const handleJoinRoom = async (roomId: string) => {
     if (!firebaseUser || !gameUser) {
-      toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in to join a room." });
+      toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in and have a profile to join a room." });
       return;
     }
     if (gameUser.inRecoveryMode) {
@@ -79,12 +82,16 @@ export default function RoomsPage() {
 
     setJoiningRoomId(roomId);
     try {
-      await joinRoomAction(roomId, firebaseUser.uid, gameUser.displayName || firebaseUser.email || "Anonymous");
-      toast({ title: "Joined Room!", description: "Successfully joined the room. Waiting for game to start..." });
-      // Future: Navigate to game waiting page or game page itself
-      // For now, the room list will update, and the joined room might disappear if it becomes full or changes status.
-      // Or, we might navigate to /rooms/[roomId]
-      router.push(`/game/${roomId}`); // Let's assume game starts immediately or room becomes a lobby.
+      const gameId = await joinRoomAction(roomId, firebaseUser.uid, gameUser.displayName || firebaseUser.email || "Anonymous");
+      if (gameId) {
+        toast({ title: "Joined Room & Game Started!", description: "Redirecting to the battlefield..." });
+        router.push(`/game/${gameId}`);
+      } else {
+        // This case might happen if the room was still waiting for another player (though joinRoomAction now aims to create game if full)
+        toast({ title: "Joined Room!", description: "Successfully joined the room. Waiting for game to start or opponent..." });
+        // Potentially navigate to a room-specific lobby page: router.push(`/rooms/${roomId}`);
+        // For now, the room list will update or user stays on rooms page.
+      }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Join Room", description: error.message || "Could not join the room." });
     } finally {
@@ -101,7 +108,7 @@ export default function RoomsPage() {
     );
   }
 
-  if (!firebaseUser) {
+  if (!firebaseUser) { // Already handled by useEffect, but good for clarity
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))]">
         <p className="text-lg text-foreground">Redirecting to login...</p>
@@ -109,18 +116,17 @@ export default function RoomsPage() {
     );
   }
   
-  if (!gameUser && !userLoading) {
-     // This state might occur if profile setup is needed or if there's a delay.
-     // useUser hook handles profile not found errors on home page, redirecting to setup.
-     // If user navigates here directly and has no profile, they should complete setup first.
+  if ((!gameUser && !userLoading) || userErrorHook) { // Check userErrorHook from useUser
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4">
         <ShieldQuestion className="h-12 w-12 text-destructive mb-4" />
-        <h2 className="text-xl font-semibold text-destructive mb-2">Profile Incomplete</h2>
+        <h2 className="text-xl font-semibold text-destructive mb-2">Profile Issue</h2>
         <p className="text-muted-foreground mb-4 max-w-md">
-          Your game profile needs to be set up before you can access game rooms.
+          {userErrorHook || "Your game profile needs to be set up or could not be loaded."}
         </p>
-        <Button onClick={() => router.push("/setup-profile")}>Go to Profile Setup</Button>
+        <Button onClick={() => router.push(userErrorHook ? "/home" : "/setup-profile")}>
+          {userErrorHook ? "Go to Home" : "Go to Profile Setup"}
+        </Button>
       </div>
     );
   }
@@ -165,7 +171,7 @@ export default function RoomsPage() {
         isOpen={isCreateRoomOpen}
         onClose={() => setIsCreateRoomOpen(false)}
         userId={firebaseUser.uid}
-        hostDisplayName={gameUser?.displayName || firebaseUser.email}
+        hostDisplayName={gameUser?.displayName || firebaseUser.email} // Pass gameUser's displayName
       />
 
       <section aria-labelledby="public-rooms-heading">
@@ -177,7 +183,7 @@ export default function RoomsPage() {
             <Loader2 className="h-10 w-10 animate-spin text-primary" />
             <p className="ml-3 text-muted-foreground">Scanning for available war rooms...</p>
           </div>
-        ) : roomsError ? (
+        ) : roomsError ? ( // Display room fetching errors
           <Card className="bg-destructive/10 border-destructive text-center py-10">
             <CardContent className="flex flex-col items-center">
               <WifiOff className="h-12 w-12 text-destructive mb-3" />
@@ -204,7 +210,7 @@ export default function RoomsPage() {
                 onJoin={() => handleJoinRoom(room.id)}
                 currentUserId={firebaseUser.uid}
                 isJoining={joiningRoomId === room.id}
-                disabled={gameUser?.inRecoveryMode || joiningRoomId !== null}
+                disabled={!!gameUser?.inRecoveryMode || !!joiningRoomId} // Ensure joiningRoomId also disables other buttons
               />
             ))}
           </div>
