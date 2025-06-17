@@ -39,8 +39,6 @@ export default function HomePage() {
     }
   }, [firebaseUser, authLoading, router]);
 
-  // Removed the automatic redirect useEffect for "profile not found" error.
-  // It will be handled by the conditional rendering below.
 
   const handleUpgrade = async (statType: 'attack' | 'defense') => {
     if (!firebaseUser || !gameUser) return;
@@ -151,12 +149,14 @@ export default function HomePage() {
         <p className="text-sm text-muted-foreground mb-4 max-w-md">
             Please wait a moment. If this persists, try refreshing or ensure your profile setup is complete.
         </p>
-        <Button onClick={refreshUserProfile} className="mr-2">
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-        </Button>
-         <Button variant="outline" onClick={() => router.push("/setup-profile")}>
-            Go to Setup
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={refreshUserProfile} className="mr-2">
+              <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+          </Button>
+          <Button variant="outline" onClick={() => router.push("/setup-profile")}>
+              Go to Setup
+          </Button>
+        </div>
       </div>
     );
   }
@@ -245,17 +245,17 @@ export default function HomePage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid md:grid-cols-3 gap-4 text-center">
-            <div>
-                <p className="text-3xl font-bold text-yellow-500">{gameUser.gold}</p>
-                <p className="text-sm text-muted-foreground">Gold</p>
+            <div aria-label={`Gold: ${gameUser.gold}`}>
+                <p className="text-3xl font-bold text-yellow-500" aria-hidden="true">{gameUser.gold}</p>
+                <p className="text-sm text-muted-foreground" aria-hidden="true">Gold</p>
             </div>
-            <div>
-                <p className="text-3xl font-bold text-red-500">{gameUser.military}</p>
-                <p className="text-sm text-muted-foreground">Military Units</p>
+            <div aria-label={`Military Units: ${gameUser.military}`}>
+                <p className="text-3xl font-bold text-red-500" aria-hidden="true">{gameUser.military}</p>
+                <p className="text-sm text-muted-foreground" aria-hidden="true">Military Units</p>
             </div>
-            <div>
-                <p className="text-3xl font-bold text-green-500">{gameUser.resources}</p>
-                <p className="text-sm text-muted-foreground">Resources</p>
+            <div aria-label={`Resources: ${gameUser.resources}`}>
+                <p className="text-3xl font-bold text-green-500" aria-hidden="true">{gameUser.resources}</p>
+                <p className="text-sm text-muted-foreground" aria-hidden="true">Resources</p>
             </div>
         </CardContent>
       </Card>
@@ -268,15 +268,17 @@ export default function HomePage() {
               <CardTitle className="flex items-center text-accent">
                 <Axe className="mr-2 h-6 w-6" /> Attack Systems
               </CardTitle>
-              <CardDescription>Current Level: {gameUser.attackLevel}</CardDescription>
+              <CardDescription aria-label={`Current Attack Level: ${gameUser.attackLevel}`}>
+                Current Level: <span aria-hidden="true">{gameUser.attackLevel}</span>
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {gameUser.attackLevel < MAX_LEVEL ? (
                 <>
                   <p className="text-sm mb-1">Upgrade to Level {nextAttackLevel}:</p>
                   {attackUpgradeCost && (
-                    <ul className="text-xs text-muted-foreground list-disc list-inside mb-3">
-                      <li>Cost: {attackUpgradeCost.gold} Gold, {attackUpgradeCost.military} Military, {attackUpgradeCost.resources} Resources</li>
+                    <ul className="text-xs text-muted-foreground list-disc list-inside mb-3" aria-label={`Cost: ${attackUpgradeCost.gold} Gold, ${attackUpgradeCost.military} Military Units, ${attackUpgradeCost.resources} Resources`}>
+                      <li aria-hidden="true">Cost: {attackUpgradeCost.gold} Gold, {attackUpgradeCost.military} Military, {attackUpgradeCost.resources} Resources</li>
                     </ul>
                   )}
                   <Button 
@@ -300,15 +302,17 @@ export default function HomePage() {
               <CardTitle className="flex items-center text-accent">
                 <Shield className="mr-2 h-6 w-6" /> Defense Systems
               </CardTitle>
-              <CardDescription>Current Level: {gameUser.defenseLevel}</CardDescription>
+               <CardDescription aria-label={`Current Defense Level: ${gameUser.defenseLevel}`}>
+                Current Level: <span aria-hidden="true">{gameUser.defenseLevel}</span>
+              </CardDescription>
             </CardHeader>
             <CardContent>
               {gameUser.defenseLevel < MAX_LEVEL ? (
                 <>
                   <p className="text-sm mb-1">Upgrade to Level {nextDefenseLevel}:</p>
                   {defenseUpgradeCost && (
-                    <ul className="text-xs text-muted-foreground list-disc list-inside mb-3">
-                      <li>Cost: {defenseUpgradeCost.gold} Gold, {defenseUpgradeCost.military} Military, {defenseUpgradeCost.resources} Resources</li>
+                     <ul className="text-xs text-muted-foreground list-disc list-inside mb-3" aria-label={`Cost: ${defenseUpgradeCost.gold} Gold, ${defenseUpgradeCost.military} Military Units, ${defenseUpgradeCost.resources} Resources`}>
+                      <li aria-hidden="true">Cost: {defenseUpgradeCost.gold} Gold, {defenseUpgradeCost.military} Military, {defenseUpgradeCost.resources} Resources</li>
                     </ul>
                   )}
                   <Button 
@@ -353,18 +357,17 @@ function GameModeCard({ title, description, icon, link, actionText, disabled, ar
         <CardDescription className="mb-6 min-h-[40px]">{description}</CardDescription>
         <Link href={disabled ? "#" : link} passHref legacyBehavior={disabled ? true : false}>
           <Button 
+            asChild={!disabled} // Use asChild only if not disabled to make <a> tag for proper Link behavior
             className="w-full" 
             disabled={disabled} 
             aria-label={ariaLabel}
             tabIndex={disabled ? -1 : 0}
             onClick={(e) => { if (disabled) e.preventDefault(); }}
           >
-            {actionText}
+            {disabled ? actionText : <a>{actionText}</a>}
           </Button>
         </Link>
       </CardContent>
     </Card>
   );
 }
-
-    

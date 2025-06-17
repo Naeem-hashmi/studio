@@ -99,7 +99,7 @@ export default function ProfilePage() {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-center p-8">
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-8">
         <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
         <h2 className="text-2xl font-semibold text-destructive mb-2">Error Loading Profile</h2>
         <p className="text-muted-foreground mb-4">{error}</p>
@@ -112,12 +112,15 @@ export default function ProfilePage() {
 
   if (!gameUser) {
     return (
-      <div className="text-center py-10">
-        <p>User profile not found. You might need to complete setup.</p>
-        <Button onClick={() => router.push('/setup-profile')} className="mt-4 mr-2">Go to Setup</Button>
-        <Button onClick={refreshUserProfile} className="mt-4">
-          <RefreshCw className="mr-2 h-4 w-4" /> Refresh
-        </Button>
+      <div className="text-center py-10 min-h-[calc(100vh-var(--navbar-height,80px))] flex flex-col items-center justify-center">
+        <p className="mb-2">User profile not found.</p>
+        <p className="text-sm text-muted-foreground mb-4">You might need to complete the setup process.</p>
+        <div className="flex gap-2">
+          <Button onClick={() => router.push('/setup-profile')} className="mt-4 mr-2">Go to Setup</Button>
+          <Button onClick={refreshUserProfile} className="mt-4">
+            <RefreshCw className="mr-2 h-4 w-4" /> Refresh Profile
+          </Button>
+        </div>
       </div>
     );
   }
@@ -217,7 +220,7 @@ export default function ProfilePage() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
               <ResourceCard icon={<DollarSign className="text-yellow-500" />} label="Gold" value={gameUser.gold} maxValue={10000} /> 
-              <ResourceCard icon={<ShieldCheck className="text-red-500" />} label="Military" value={gameUser.military} maxValue={5000} />
+              <ResourceCard icon={<ShieldCheck className="text-red-500" />} label="Military Units" value={gameUser.military} maxValue={5000} />
               <ResourceCard icon={<Package className="text-green-500" />} label="Supplies" value={gameUser.resources} maxValue={5000} />
             </div>
           </section>
@@ -244,13 +247,13 @@ export default function ProfilePage() {
                 Recovery Progress
                 </h3>
                 <div className="space-y-3">
-                    <div>
-                        <p className="text-sm font-medium text-muted-foreground">Successful Attacks: {gameUser.recoveryProgress.successfulAttacks} / 10</p>
-                        <Progress value={(gameUser.recoveryProgress.successfulAttacks / 10) * 100} className="h-2 mt-1" />
+                    <div aria-label={`Successful Attacks: ${gameUser.recoveryProgress.successfulAttacks} out of 10`}>
+                        <p className="text-sm font-medium text-muted-foreground" aria-hidden="true">Successful Attacks: {gameUser.recoveryProgress.successfulAttacks} / 10</p>
+                        <Progress value={(gameUser.recoveryProgress.successfulAttacks / 10) * 100} className="h-2 mt-1" aria-hidden="true"/>
                     </div>
-                    <div>
-                        <p className="text-sm font-medium text-muted-foreground">Successful Defenses: {gameUser.recoveryProgress.successfulDefenses} / 10</p>
-                        <Progress value={(gameUser.recoveryProgress.successfulDefenses / 10) * 100} className="h-2 mt-1" />
+                    <div aria-label={`Successful Defenses: ${gameUser.recoveryProgress.successfulDefenses} out of 10`}>
+                        <p className="text-sm font-medium text-muted-foreground" aria-hidden="true">Successful Defenses: {gameUser.recoveryProgress.successfulDefenses} / 10</p>
+                        <Progress value={(gameUser.recoveryProgress.successfulDefenses / 10) * 100} className="h-2 mt-1" aria-hidden="true"/>
                     </div>
                 </div>
             </section>
@@ -265,9 +268,13 @@ export default function ProfilePage() {
 
 interface StatCardProps { icon: React.ReactNode; label: string; value: string | number; }
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => (
-  <div className="bg-card p-4 rounded-lg shadow-md flex items-center space-x-3 border border-border hover:border-primary/50 transition-colors">
-    <div className="p-2 bg-primary/10 rounded-full">{icon}</div>
-    <div>
+  <div 
+    className="bg-card p-4 rounded-lg shadow-md flex items-center space-x-3 border border-border hover:border-primary/50 transition-colors"
+    aria-label={`${label}: ${value}`}
+    role="figure" // Use role="figure" for self-contained content unit
+  >
+    <div className="p-2 bg-primary/10 rounded-full" aria-hidden="true">{icon}</div>
+    <div aria-hidden="true">
       <p className="text-sm text-muted-foreground">{label}</p>
       <p className="text-xl md:text-2xl font-semibold text-foreground">{value}</p>
     </div>
@@ -276,31 +283,46 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => (
 
 interface ResourceCardProps { icon: React.ReactNode; label: string; value: number; maxValue: number; }
 const ResourceCard: React.FC<ResourceCardProps> = ({ icon, label, value, maxValue }) => (
-  <div className="bg-card p-4 rounded-lg shadow-md border border-border hover:border-primary/50 transition-colors">
-    <div className="flex items-center justify-between mb-1">
+  <div 
+    className="bg-card p-4 rounded-lg shadow-md border border-border hover:border-primary/50 transition-colors"
+    aria-label={`${label}: ${value} out of ${maxValue}`}
+    role="figure"
+  >
+    <div className="flex items-center justify-between mb-1" aria-hidden="true">
         <div className="flex items-center space-x-2">
             {icon}
             <p className="text-md md:text-lg font-medium text-foreground">{label}</p>
         </div>
         <p className="text-lg md:text-xl font-bold text-primary">{value}</p>
     </div>
-    <Progress value={maxValue > 0 ? (value / maxValue) * 100 : 0} className="h-2 w-full" aria-label={`${label} resource level: ${value} out of ${maxValue}`} />
-    <p className="text-xs text-muted-foreground text-right mt-1">{value} / {maxValue}</p>
+    <Progress 
+        value={maxValue > 0 ? (value / maxValue) * 100 : 0} 
+        className="h-2 w-full" 
+        aria-label={`${label} progress: ${value} of ${maxValue}`}  // This is fine as it's part of the figure.
+    />
+    <p className="text-xs text-muted-foreground text-right mt-1" aria-hidden="true">{value} / {maxValue}</p>
   </div>
 );
 
 interface LevelCardProps { icon: React.ReactNode; label: string; value: number; maxLevel: number; }
 const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) => (
-  <div className="bg-card p-4 rounded-lg shadow-md border border-border hover:border-primary/50 transition-colors">
-    <div className="flex items-center space-x-3 mb-2">
+  <div 
+    className="bg-card p-4 rounded-lg shadow-md border border-border hover:border-primary/50 transition-colors"
+    aria-label={`${label}: Level ${value}. Next Level: ${value < maxLevel ? value + 1 : "Maximum"}`}
+    role="figure"
+  >
+    <div className="flex items-center space-x-3 mb-2" aria-hidden="true">
        <div className="p-2 bg-accent/10 rounded-full">{icon}</div>
       <div>
         <p className="text-md md:text-lg font-medium text-foreground">{label}</p>
         <p className="text-xl md:text-2xl font-semibold text-accent">Level {value}</p>
       </div>
     </div>
-    <Progress value={(value / maxLevel) * 100} className="h-2 w-full [&>div]:bg-accent" aria-label={`${label}: Level ${value} out of ${maxLevel}`} />
-     <p className="text-xs text-muted-foreground text-right mt-1">Next Lvl: {value < maxLevel ? value + 1 : "MAX"}</p>
+    <Progress 
+        value={(value / maxLevel) * 100} 
+        className="h-2 w-full [&>div]:bg-accent" 
+        aria-label={`${label} progress towards next level: Level ${value} of ${maxLevel}`} 
+    />
+     <p className="text-xs text-muted-foreground text-right mt-1" aria-hidden="true">Next Lvl: {value < maxLevel ? value + 1 : "MAX"}</p>
   </div>
 );
-
