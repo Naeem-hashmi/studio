@@ -10,19 +10,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUser } from "@/hooks/useUser";
 import { Swords, Users, Bot, AlertTriangle, Loader2, GraduationCap, Eye, RefreshCw, ArrowUpCircle, Shield, Axe, UserPlus, HelpCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { performStatUpgrade } from "@/lib/firestoreActions"; // For upgrades
+import { performStatUpgrade, MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS } from "@/lib/firestoreActions";
 
-const ATTACK_UPGRADE_COSTS: Record<number, { gold: number; military: number; resources: number }> = {
-  2: { gold: 50, military: 25, resources: 25 }, // Cost to upgrade from level 1 to 2
-  3: { gold: 150, military: 75, resources: 75 }, // Cost to upgrade from level 2 to 3
-};
-
-const DEFENSE_UPGRADE_COSTS: Record<number, { gold: number; military: number; resources: number }> = {
-  2: { gold: 50, military: 25, resources: 25 },
-  3: { gold: 150, military: 75, resources: 75 },
-};
-
-const MAX_LEVEL = 3;
 const PROFILE_NOT_FOUND_ERROR_SUBSTRING = "Your game profile could not be loaded";
 
 export default function HomePage() {
@@ -50,9 +39,10 @@ export default function HomePage() {
       await performStatUpgrade(firebaseUser.uid, statType);
       toast({
         title: "Upgrade Successful!",
-        description: `${statType === 'attack' ? 'Attack' : 'Defense'} level increased.`,
+        description: `${statType === 'attack' ? 'Attack' : 'Defense'} level increased. Your resources have been updated.`,
+        variant: "default", // Explicitly set for success, though default is usually fine
       });
-      await refreshUserProfile(); // Refresh user data
+      await refreshUserProfile(); 
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -91,7 +81,6 @@ export default function HomePage() {
     );
   }
 
-  // Specific handling for "Profile not found" error
   if (userError && userError.includes(PROFILE_NOT_FOUND_ERROR_SUBSTRING)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-6">
@@ -120,10 +109,9 @@ export default function HomePage() {
     );
   }
 
-  // General error handling (if not the specific "profile not found" error)
   if (userError) { 
      return (
-      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-8">
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4 md:p-8">
         <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
         <h2 className="text-2xl font-semibold text-destructive mb-2">Error Loading Profile</h2>
         <p className="text-muted-foreground mb-6 text-sm max-w-md">{userError}</p>
@@ -140,8 +128,6 @@ export default function HomePage() {
   }
   
   if (!gameUser) {
-    // This state implies loading has finished, no specific "profile not found" error for redirection,
-    // but gameUser is still null. This might be a brief state or an unexpected issue.
     return (
        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-6">
         <Loader2 className="h-12 w-12 animate-spin text-amber-500 mb-4" />
@@ -175,24 +161,24 @@ export default function HomePage() {
 
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <header className="mb-10 text-center">
-        <h1 className="text-4xl font-bold text-primary mb-2">
+    <div className="container mx-auto px-2 sm:px-4 py-6 sm:py-8">
+      <header className="mb-8 text-center">
+        <h1 className="text-3xl sm:text-4xl font-bold text-primary mb-2">
           Welcome, Commander {gameUser.displayName || "Valued Player"}!
         </h1>
-        <p className="text-lg text-foreground/80">
+        <p className="text-base sm:text-lg text-foreground/80">
           Your forces await your command. Choose your path to victory.
         </p>
       </header>
 
       {isInRecovery && (
-        <Card className="mb-8 border-destructive bg-destructive/10">
+        <Card className="mb-6 border-destructive bg-destructive/10">
           <CardHeader>
-            <CardTitle className="text-destructive flex items-center">
-              <AlertTriangle className="mr-2 h-6 w-6" />
+            <CardTitle className="text-destructive flex items-center text-lg sm:text-xl">
+              <AlertTriangle className="mr-2 h-5 w-5 sm:h-6 sm:w-6" />
               Recovery Mode Active
             </CardTitle>
-            <CardDescription className="text-destructive/80">
+            <CardDescription className="text-destructive/80 text-xs sm:text-sm">
               You must complete Training Mode objectives to participate in other battles.
               Win 10 successful attacks and 10 successful defenses.
               Progress: {gameUser.recoveryProgress.successfulAttacks}/10 Attacks, {gameUser.recoveryProgress.successfulDefenses}/10 Defenses.
@@ -200,19 +186,19 @@ export default function HomePage() {
           </CardHeader>
           <CardContent>
              <Link href="/training" passHref>
-              <Button className="w-full bg-destructive hover:bg-destructive/90 text-destructive-foreground">
-                <GraduationCap className="mr-2 h-5 w-5" /> Go to Training Mode
+              <Button className="w-full bg-destructive hover:bg-destructive/90 text-destructive-foreground text-sm sm:text-base">
+                <GraduationCap className="mr-2 h-4 w-4 sm:h-5 sm:w-5" /> Go to Training Mode
               </Button>
             </Link>
           </CardContent>
         </Card>
       )}
 
-      <div className="grid md:grid-cols-3 gap-6">
+      <div className="grid md:grid-cols-3 gap-4 sm:gap-6">
         <GameModeCard
           title="Training Mode"
           description="Hone your skills against an AI opponent. Essential for recovery."
-          icon={<Bot className="h-10 w-10 text-accent" />}
+          icon={<Bot className="h-8 w-8 sm:h-10 sm:w-10 text-accent" />}
           link="/training"
           actionText="Start Training"
           disabled={false} 
@@ -221,7 +207,7 @@ export default function HomePage() {
         <GameModeCard
           title="Quick War"
           description="Instantly match with another online commander for a swift battle."
-          icon={<Swords className="h-10 w-10 text-accent" />}
+          icon={<Swords className="h-8 w-8 sm:h-10 sm:w-10 text-accent" />}
           link="/quick-war"
           actionText="Find Match"
           disabled={isInRecovery}
@@ -230,7 +216,7 @@ export default function HomePage() {
         <GameModeCard
           title="Room Match"
           description="Create or join custom rooms with specific risk levels."
-          icon={<Users className="h-10 w-10 text-accent" />}
+          icon={<Users className="h-8 w-8 sm:h-10 sm:w-10 text-accent" />}
           link="/rooms"
           actionText="Browse Rooms"
           disabled={isInRecovery}
@@ -238,56 +224,60 @@ export default function HomePage() {
         />
       </div>
 
-      <Card className="mt-10 bg-primary/5 border-primary/20">
+      <Card className="mt-8 bg-primary/5 border-primary/20" 
+            aria-labelledby="empire-summary-title">
         <CardHeader>
-          <CardTitle className="text-2xl text-primary flex items-center">
-             <Eye className="mr-2 h-6 w-6" /> At a Glance: Your Empire
+          <CardTitle id="empire-summary-title" className="text-xl sm:text-2xl text-primary flex items-center">
+             <Eye className="mr-2 h-5 w-5 sm:h-6 sm:w-6" /> At a Glance: Your Empire
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid md:grid-cols-3 gap-4 text-center">
+        <CardContent className="grid grid-cols-3 gap-2 sm:gap-4 text-center">
             <div aria-label={`Gold: ${gameUser.gold}`}>
-                <p className="text-3xl font-bold text-yellow-500" aria-hidden="true">{gameUser.gold}</p>
-                <p className="text-sm text-muted-foreground" aria-hidden="true">Gold</p>
+                <p className="text-xl sm:text-3xl font-bold text-yellow-500" aria-hidden="true">{gameUser.gold}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground" aria-hidden="true">Gold</p>
             </div>
             <div aria-label={`Military Units: ${gameUser.military}`}>
-                <p className="text-3xl font-bold text-red-500" aria-hidden="true">{gameUser.military}</p>
-                <p className="text-sm text-muted-foreground" aria-hidden="true">Military Units</p>
+                <p className="text-xl sm:text-3xl font-bold text-red-500" aria-hidden="true">{gameUser.military}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground" aria-hidden="true">Military</p>
             </div>
             <div aria-label={`Resources: ${gameUser.resources}`}>
-                <p className="text-3xl font-bold text-green-500" aria-hidden="true">{gameUser.resources}</p>
-                <p className="text-sm text-muted-foreground" aria-hidden="true">Resources</p>
+                <p className="text-xl sm:text-3xl font-bold text-green-500" aria-hidden="true">{gameUser.resources}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground" aria-hidden="true">Resources</p>
             </div>
         </CardContent>
       </Card>
 
-      <section className="mt-10">
-        <h2 className="text-3xl font-bold text-center text-primary mb-6">Upgrade Your Arsenal</h2>
-        <div className="grid md:grid-cols-2 gap-6">
+      <section className="mt-8">
+        <h2 className="text-2xl sm:text-3xl font-bold text-center text-primary mb-4 sm:mb-6">Upgrade Your Arsenal</h2>
+        <div className="grid md:grid-cols-2 gap-4 sm:gap-6">
           <Card className="bg-card">
             <CardHeader>
-              <CardTitle className="flex items-center text-accent">
-                <Axe className="mr-2 h-6 w-6" /> Attack Systems
+              <CardTitle className="flex items-center text-accent text-lg sm:text-xl">
+                <Axe className="mr-2 h-5 w-5 sm:h-6 sm:w-6" /> Attack Systems
               </CardTitle>
               <CardDescription aria-label={`Current Attack Level: ${gameUser.attackLevel}`}>
-                Current Level: <span aria-hidden="true">{gameUser.attackLevel}</span>
+                Current Level: <span aria-hidden="true" className="font-semibold">{gameUser.attackLevel}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
               {gameUser.attackLevel < MAX_LEVEL ? (
                 <>
-                  <p className="text-sm mb-1">Upgrade to Level {nextAttackLevel}:</p>
+                  <p className="text-xs sm:text-sm mb-1">Upgrade to Level {nextAttackLevel}:</p>
                   {attackUpgradeCost && (
-                    <ul className="text-xs text-muted-foreground list-disc list-inside mb-3" aria-label={`Cost: ${attackUpgradeCost.gold} Gold, ${attackUpgradeCost.military} Military Units, ${attackUpgradeCost.resources} Resources`}>
-                      <li aria-hidden="true">Cost: {attackUpgradeCost.gold} Gold, {attackUpgradeCost.military} Military, {attackUpgradeCost.resources} Resources</li>
+                    <ul className="text-xs text-muted-foreground list-disc list-inside mb-2 sm:mb-3" 
+                        aria-label={`Cost to upgrade attack to level ${nextAttackLevel}: ${attackUpgradeCost.gold} Gold, ${attackUpgradeCost.military} Military Units, ${attackUpgradeCost.resources} Resources`}>
+                      <li aria-hidden="true">Gold: {attackUpgradeCost.gold}</li>
+                      <li aria-hidden="true">Military: {attackUpgradeCost.military}</li>
+                      <li aria-hidden="true">Resources: {attackUpgradeCost.resources}</li>
                     </ul>
                   )}
                   <Button 
                     onClick={() => handleUpgrade('attack')} 
                     disabled={!canUpgradeAttack || !canAffordAttackUpgrade || isUpgradingAttack}
-                    className="w-full"
-                    aria-label={`Upgrade Attack to Level ${nextAttackLevel}`}
+                    className="w-full text-sm sm:text-base"
+                    aria-label={`Upgrade Attack to Level ${nextAttackLevel}. Cost: ${attackUpgradeCost?.gold || 0} gold, ${attackUpgradeCost?.military || 0} military, ${attackUpgradeCost?.resources || 0} resources.`}
                   >
-                    {isUpgradingAttack ? <Loader2 className="animate-spin" /> : <ArrowUpCircle className="mr-2 h-5 w-5" />}
+                    {isUpgradingAttack ? <Loader2 className="animate-spin" /> : <ArrowUpCircle className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />}
                     Upgrade Attack to Lvl {nextAttackLevel}
                   </Button>
                 </>
@@ -299,29 +289,32 @@ export default function HomePage() {
 
           <Card className="bg-card">
             <CardHeader>
-              <CardTitle className="flex items-center text-accent">
-                <Shield className="mr-2 h-6 w-6" /> Defense Systems
+              <CardTitle className="flex items-center text-accent text-lg sm:text-xl">
+                <Shield className="mr-2 h-5 w-5 sm:h-6 sm:w-6" /> Defense Systems
               </CardTitle>
                <CardDescription aria-label={`Current Defense Level: ${gameUser.defenseLevel}`}>
-                Current Level: <span aria-hidden="true">{gameUser.defenseLevel}</span>
+                Current Level: <span aria-hidden="true" className="font-semibold">{gameUser.defenseLevel}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
               {gameUser.defenseLevel < MAX_LEVEL ? (
                 <>
-                  <p className="text-sm mb-1">Upgrade to Level {nextDefenseLevel}:</p>
+                  <p className="text-xs sm:text-sm mb-1">Upgrade to Level {nextDefenseLevel}:</p>
                   {defenseUpgradeCost && (
-                     <ul className="text-xs text-muted-foreground list-disc list-inside mb-3" aria-label={`Cost: ${defenseUpgradeCost.gold} Gold, ${defenseUpgradeCost.military} Military Units, ${defenseUpgradeCost.resources} Resources`}>
-                      <li aria-hidden="true">Cost: {defenseUpgradeCost.gold} Gold, {defenseUpgradeCost.military} Military, {defenseUpgradeCost.resources} Resources</li>
+                     <ul className="text-xs text-muted-foreground list-disc list-inside mb-2 sm:mb-3"
+                         aria-label={`Cost to upgrade defense to level ${nextDefenseLevel}: ${defenseUpgradeCost.gold} Gold, ${defenseUpgradeCost.military} Military Units, ${defenseUpgradeCost.resources} Resources`}>
+                      <li aria-hidden="true">Gold: {defenseUpgradeCost.gold}</li>
+                      <li aria-hidden="true">Military: {defenseUpgradeCost.military}</li>
+                      <li aria-hidden="true">Resources: {defenseUpgradeCost.resources}</li>
                     </ul>
                   )}
                   <Button 
                     onClick={() => handleUpgrade('defense')} 
                     disabled={!canUpgradeDefense || !canAffordDefenseUpgrade || isUpgradingDefense}
-                    className="w-full"
-                    aria-label={`Upgrade Defense to Level ${nextDefenseLevel}`}
+                    className="w-full text-sm sm:text-base"
+                    aria-label={`Upgrade Defense to Level ${nextDefenseLevel}. Cost: ${defenseUpgradeCost?.gold || 0} gold, ${defenseUpgradeCost?.military || 0} military, ${defenseUpgradeCost?.resources || 0} resources.`}
                   >
-                    {isUpgradingDefense ? <Loader2 className="animate-spin" /> : <ArrowUpCircle className="mr-2 h-5 w-5" />}
+                    {isUpgradingDefense ? <Loader2 className="animate-spin" /> : <ArrowUpCircle className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />}
                     Upgrade Defense to Lvl {nextDefenseLevel}
                   </Button>
                 </>
@@ -349,16 +342,16 @@ interface GameModeCardProps {
 function GameModeCard({ title, description, icon, link, actionText, disabled, ariaLabel }: GameModeCardProps) {
   return (
     <Card className={`hover:shadow-xl transition-shadow duration-300 ${disabled ? 'opacity-60 bg-muted/50' : 'bg-card'}`}>
-      <CardHeader className="items-center text-center">
+      <CardHeader className="items-center text-center pt-4 sm:pt-6">
         {icon}
-        <CardTitle className="mt-4 text-2xl">{title}</CardTitle>
+        <CardTitle className="mt-3 text-xl sm:text-2xl">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="text-center">
-        <CardDescription className="mb-6 min-h-[40px]">{description}</CardDescription>
+      <CardContent className="text-center pb-4 sm:pb-6">
+        <CardDescription className="mb-4 sm:mb-6 min-h-[30px] sm:min-h-[40px] text-xs sm:text-sm">{description}</CardDescription>
         <Link href={disabled ? "#" : link} passHref legacyBehavior={disabled ? true : false}>
           <Button 
-            asChild={!disabled} // Use asChild only if not disabled to make <a> tag for proper Link behavior
-            className="w-full" 
+            asChild={!disabled} 
+            className="w-full text-sm sm:text-base" 
             disabled={disabled} 
             aria-label={ariaLabel}
             tabIndex={disabled ? -1 : 0}
@@ -371,3 +364,4 @@ function GameModeCard({ title, description, icon, link, actionText, disabled, ar
     </Card>
   );
 }
+
