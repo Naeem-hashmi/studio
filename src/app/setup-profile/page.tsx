@@ -26,31 +26,40 @@ export default function SetupProfilePage() {
   const [initialCheckLoading, setInitialCheckLoading] = useState(true);
 
   useEffect(() => {
+    // This effect handles initial page load:
+    // 1. Redirect to /login if not authenticated.
+    // 2. If authenticated, check if a profile ALREADY exists. If so, redirect to /home.
+    //    This prevents users from landing here if they already have a profile.
+    console.log("SetupProfilePage: useEffect triggered. authLoading:", authLoading, "firebaseUser:", !!firebaseUser);
+
     if (!authLoading && !firebaseUser) {
-      // If not authenticated, redirect to login
+      console.log("SetupProfilePage: Not authenticated, redirecting to /login.");
       router.replace("/login");
       return;
     }
     
-    // If authenticated, check if profile ALREADY exists (e.g., user navigated here directly or reloaded)
-    // This ensures they don't try to create a profile if one already exists.
     if (firebaseUser && !authLoading) {
+      console.log(`SetupProfilePage: Authenticated as ${firebaseUser.uid}. Checking for existing profile.`);
       const checkExistingProfile = async () => {
-        setInitialCheckLoading(true);
+        setInitialCheckLoading(true); // Explicitly set loading for this check
+        setError(null); // Clear previous errors
         try {
           const existingProfile = await getUserProfile(firebaseUser.uid);
           if (existingProfile) {
+            console.log("SetupProfilePage: Profile already exists. Redirecting to /home.");
             toast({
               title: "Profile Already Exists",
               description: "Redirecting you to the command center.",
-              variant: "default",
             });
             router.replace("/home");
+          } else {
+            console.log("SetupProfilePage: No existing profile found. User can proceed with setup.");
+            // No profile, so stay on this page.
           }
         } catch (e: any) {
-          // Error checking profile, fine to proceed with setup if it fails,
-          // as createUserProfile will also handle it.
-          console.warn("Error checking for existing profile on setup page:", e.message);
+          console.error("SetupProfilePage: Error checking for existing profile:", e);
+          setError("Could not verify existing profile. Please try refreshing. " + e.message);
+          // Potentially allow setup anyway, or guide user. For now, we let them stay.
         } finally {
           setInitialCheckLoading(false);
         }
@@ -62,29 +71,34 @@ export default function SetupProfilePage() {
   const handleCompleteSetup = async () => {
     if (!firebaseUser) {
       setError("Authentication error. Please try logging in again.");
+      console.error("SetupProfilePage: handleCompleteSetup called without firebaseUser.");
       return;
     }
 
     setIsSettingUp(true);
     setError(null);
+    console.log(`SetupProfilePage: handleCompleteSetup initiated for ${firebaseUser.uid}.`);
 
     try {
-      const gameProfile = await createUserProfile(firebaseUser);
+      // Call the server action to create the profile
+      const gameProfile = await createUserProfile(firebaseUser); 
       
       if (!gameProfile) {
+        // This case should ideally be caught by an error thrown from createUserProfile
+        console.error("SetupProfilePage: createUserProfile returned undefined/null, which is unexpected.");
         throw new Error("Profile could not be created or retrieved. Please try again.");
       }
 
+      console.log(`SetupProfilePage: Profile setup successful for ${firebaseUser.uid}. Profile:`, gameProfile);
       toast({
         title: "Profile Setup Complete!",
-        description: "Welcome to Tactical Echo, Commander! Redirecting to your command center...",
-        variant: "default",
+        description: "Welcome to Tactical Echo, Commander! Redirecting...",
         className: "bg-green-500 text-white dark:bg-green-700",
         duration: 3000,
       });
-      router.push("/home");
+      router.push("/home"); // Redirect to home page on success
     } catch (e: any) {
-      console.error("Profile Setup Error:", e);
+      console.error("SetupProfilePage: Profile Setup Error in handleCompleteSetup:", e);
       const errorMessage = e.message || "An unexpected error occurred during profile setup.";
       setError(errorMessage);
       toast({
@@ -97,7 +111,8 @@ export default function SetupProfilePage() {
     }
   };
 
-  if (authLoading || initialCheckLoading || !firebaseUser) {
+  // Loading state for the page
+  if (authLoading || initialCheckLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -110,9 +125,19 @@ export default function SetupProfilePage() {
     );
   }
 
-  // If initial check determined profile exists, useEffect would have redirected.
-  // This page should only render fully if no profile was found for this firebaseUser.
+  // If not authenticated (and not loading auth), useEffect should have redirected.
+  // This is a fallback.
+  if (!firebaseUser) {
+     return (
+      <div className="flex flex-col items-center justify-center min-h-screen text-center">
+        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+        <p className="text-lg text-foreground">Authentication required. Redirecting to login...</p>
+      </div>
+    );
+  }
 
+
+  // Render the setup form
   return (
     <div className="flex items-center justify-center min-h-screen p-4 bg-gradient-to-br from-background to-secondary/30">
       <Card className="w-full max-w-lg shadow-2xl border-primary/30">
@@ -170,7 +195,7 @@ export default function SetupProfilePage() {
             ) : (
               <CheckCircle className="mr-2 h-5 w-5" />
             )}
-            {isSettingUp ? "Setting Up..." : "Complete Setup & Enter Command"}
+            {isSettingUp ? "Setting Up Profile..." : "Complete Setup & Enter Command"}
           </Button>
         </CardContent>
       </Card>
