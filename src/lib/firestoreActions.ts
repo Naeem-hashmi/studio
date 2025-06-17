@@ -9,12 +9,8 @@ const USER_COLLECTION = "users";
 
 // This helper ensures all fields are present with defaults from Firestore data or initial values.
 const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
-  console.log(`firestoreActions: buildGameUserFromData for ${userId}, raw input data:`, JSON.parse(JSON.stringify(data))); // Log a deep copy
+  console.log(`firestoreActions: buildGameUserFromData for ${userId}, raw input data:`, JSON.parse(JSON.stringify(data))); 
   
-  // Firestore Timestamps will be objects. We'll convert them to ISO strings or keep as null/undefined for the GameUser type if needed.
-  // For now, GameUser doesn't have explicit createdAt/updatedAt fields, so we don't need to map them here.
-  // If they were part of GameUser as Date objects, you'd convert data.createdAt.toDate() etc.
-
   const profile: GameUser = {
     uid: data.uid || userId,
     email: data.email !== undefined ? data.email : null,
@@ -33,8 +29,10 @@ const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
                         typeof data.recoveryProgress.successfulDefenses === 'number')
                       ? { successfulAttacks: data.recoveryProgress.successfulAttacks, successfulDefenses: data.recoveryProgress.successfulDefenses }
                       : { successfulAttacks: 0, successfulDefenses: 0 },
-    rank: typeof data.rank === 'string' ? data.rank : undefined, // Keep as undefined if not present
-    xp: typeof data.xp === 'number' ? data.xp : undefined, // Keep as undefined if not present
+    rank: data.rank !== undefined ? data.rank : null, // Changed: undefined -> null
+    xp: data.xp !== undefined ? data.xp : null,       // Changed: undefined -> null
+    // Firestore Timestamps (createdAt, updatedAt) are handled during set/update, not in this builder directly from raw data.
+    // If reading from Firestore, they'd be Firestore Timestamp objects. This builder is for constructing the GameUser type.
   };
   console.log(`firestoreActions: Constructed GameUser for ${userId}:`, profile);
   return profile;
@@ -48,6 +46,10 @@ export async function getUserProfile(userId: string): Promise<GameUser | null> {
     if (userDocSnap.exists()) {
       const rawData = userDocSnap.data();
       console.log(`firestoreActions: Profile found for ${userId}`, rawData);
+      // Timestamps from Firestore will be actual Timestamp objects.
+      // buildGameUserFromData should correctly map them or other fields.
+      // For GameUser, we mainly care about game stats and basic info.
+      // We can pass rawData directly as buildGameUserFromData is designed to handle it.
       return buildGameUserFromData(userId, rawData);
     }
     console.log(`firestoreActions: Profile NOT found for ${userId}`);
@@ -72,7 +74,7 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
       console.log(`firestoreActions: Profile already exists for ${firebaseUser.uid}. Ensuring auth fields are current.`);
       const currentData = existingProfileSnap.data() || {};
       const updates: { [key: string]: any } = {
-        updatedAt: serverTimestamp() // Always update 'updatedAt'
+        updatedAt: serverTimestamp() 
       };
       let changed = false;
 
@@ -84,10 +86,8 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
         updates.email = firebaseUser.email;
         changed = true;
       }
-      // photoURL can be null, check for strict inequality
-      // Ensure currentData.photoURL is not undefined before comparison if firebaseUser.photoURL is null
       if (firebaseUser.photoURL !== (currentData.photoURL === undefined ? null : currentData.photoURL)) { 
-         updates.photoURL = firebaseUser.photoURL; // This can be null
+         updates.photoURL = firebaseUser.photoURL; 
          changed = true;
       }
 
@@ -96,24 +96,24 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
         await updateDoc(userProfileRef, updates);
          console.log(`firestoreActions: Successfully updated existing profile for ${firebaseUser.uid}.`);
       } else {
-        console.log(`firestoreActions: No auth-related field changes needed for existing profile ${firebaseUser.uid}. Only 'updatedAt' touched if it's the only change.`);
-        // If only updatedAt is in updates, still perform the update to refresh the timestamp
+        console.log(`firestoreActions: No auth-related field changes needed for existing profile ${firebaseUser.uid}. Updating timestamp only if no other changes.`);
         if (Object.keys(updates).length === 1 && 'updatedAt' in updates) {
-            await updateDoc(userProfileRef, updates); // Update timestamp
+            await updateDoc(userProfileRef, updates); 
             console.log(`firestoreActions: Refreshed 'updatedAt' for existing profile ${firebaseUser.uid}.`);
         }
       }
     } else {
       console.log(`firestoreActions: Profile does not exist for ${firebaseUser.uid}. Creating new profile with defaults.`);
-      const initialProfileData = buildGameUserFromData(firebaseUser.uid, {
+      // Use buildGameUserFromData to establish the full GameUser structure with defaults
+      const initialGameUser = buildGameUserFromData(firebaseUser.uid, {
         email: firebaseUser.email || null,
         displayName: firebaseUser.displayName || "Anonymous Warlord",
         photoURL: firebaseUser.photoURL || null,
-        // buildGameUserFromData provides other game defaults (gold, military, etc.)
+        // Other fields (gold, military, etc.) will get defaults from buildGameUserFromData
       });
       
       const dataToSet = {
-        ...initialProfileData,
+        ...initialGameUser, // This now correctly has null for rank/xp if not set
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -122,7 +122,6 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
       console.log(`firestoreActions: Successfully created new profile for ${firebaseUser.uid}.`);
     }
 
-    // ALWAYS re-fetch the profile after any write to ensure consistency and get resolved timestamps.
     console.log(`firestoreActions: Re-fetching profile for ${firebaseUser.uid} after write operation.`);
     const finalProfileSnap = await getDoc(userProfileRef);
     if (!finalProfileSnap.exists()) {
@@ -131,12 +130,11 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
     }
     const finalData = finalProfileSnap.data();
     console.log(`firestoreActions: Successfully re-fetched profile for ${firebaseUser.uid}. Data:`, finalData);
-    return buildGameUserFromData(firebaseUser.uid, finalData);
+    return buildGameUserFromData(firebaseUser.uid, finalData); // Use finalData from DB
 
   } catch (error: any) {
     console.error(`firestoreActions: Error in createUserProfile for ${firebaseUser.uid}:`, error);
-    console.error(`firestoreActions: Error stack:`, error.stack); // Log stack for more details
-    // Rethrow a more generic error or the specific one if needed by client
+    console.error(`firestoreActions: Error stack:`, error.stack); 
     throw new Error(`Failed to create or update user profile for ${firebaseUser.uid}: ${error.message || 'Unknown server error during profile operation.'}`);
   }
 }
@@ -145,10 +143,15 @@ export async function updateUserProfile(userId: string, data: Partial<GameUser>)
   console.log(`firestoreActions: Updating profile for ${userId} with data:`, data);
   try {
     const userDocRef = doc(db, USER_COLLECTION, userId);
-    const updateData = {
-        ...data,
-        updatedAt: serverTimestamp()
-    };
+    const updateData: { [key: string]: any } = { ...data, updatedAt: serverTimestamp() };
+
+    // Ensure no undefined values are passed for update
+    for (const key in updateData) {
+        if (updateData[key] === undefined) {
+            delete updateData[key]; // Or set to null if appropriate for your schema
+        }
+    }
+    
     await updateDoc(userDocRef, updateData);
     console.log(`firestoreActions: Successfully updated profile for ${userId}`);
   } catch (error) {
@@ -159,3 +162,5 @@ export async function updateUserProfile(userId: string, data: Partial<GameUser>)
     throw new Error(`Failed to update user profile for ${userId} due to an unknown server error.`);
   }
 }
+
+    
