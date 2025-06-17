@@ -128,16 +128,18 @@ export default function ProfilePage() {
 
   const totalGames = gameUser.wins + gameUser.losses;
   const winRate = totalGames > 0 ? Math.round((gameUser.wins / totalGames) * 100) : 0;
+  const avatarAltText = gameUser.displayName ? `${gameUser.displayName}'s avatar` : "User avatar";
+
 
   return (
     <div className="container mx-auto px-2 py-6 sm:px-4 sm:py-8">
       <Card className="w-full max-w-3xl mx-auto shadow-xl border-primary/20 overflow-hidden bg-card">
         <CardHeader className="bg-primary/10 p-4 md:p-6">
           <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:space-x-4 space-y-3 sm:space-y-0">
-            <Avatar className="h-20 w-20 md:h-24 md:w-24 border-4 border-background shadow-lg">
-              <AvatarImage src={firebaseUser?.photoURL || undefined} alt={gameUser.displayName || "User avatar"} />
+            <Avatar className="h-20 w-20 md:h-24 md:w-24 border-4 border-background shadow-lg" aria-label={avatarAltText}>
+              <AvatarImage src={firebaseUser?.photoURL || undefined} alt={avatarAltText} />
               <AvatarFallback className="text-3xl md:text-4xl bg-primary/30 text-primary-foreground">
-                {gameUser.displayName ? gameUser.displayName.charAt(0).toUpperCase() : <UserCircle size={48}/>}
+                {gameUser.displayName ? gameUser.displayName.charAt(0).toUpperCase() : <UserCircle size={48} aria-label="Default user icon"/>}
               </AvatarFallback>
             </Avatar>
             <div className="flex-grow">
@@ -186,7 +188,7 @@ export default function ProfilePage() {
               <CardDescription className="text-sm md:text-base text-foreground/80">{firebaseUser?.email}</CardDescription>
               {gameUser.inRecoveryMode && (
                 <p className="text-xs md:text-sm font-semibold text-destructive mt-1 p-1 px-2 bg-destructive/10 rounded-md inline-block" aria-label="Account status: In Recovery Mode">
-                  <AlertTriangle className="inline h-4 w-4 mr-1" aria-hidden="true" /> <span aria-hidden="true">In Recovery Mode</span>
+                  <AlertTriangle className="inline h-4 w-4 mr-1" aria-hidden="true" /> In Recovery Mode
                 </p>
               )}
             </div>
@@ -195,19 +197,19 @@ export default function ProfilePage() {
         
         <CardContent className="p-4 md:p-6 space-y-6">
           <section aria-labelledby="battle-stats-heading">
-            <h3 id="battle-stats-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center" aria-hidden="true">
+            <h3 id="battle-stats-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
               <BarChart3 className="mr-2 h-5 w-5" aria-hidden="true" />
               Battle Statistics
             </h3>
-            <div className="grid grid-cols-3 gap-3 md:gap-4">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               <StatCard icon={<TrendingUp className="text-green-500" />} label="Wins" value={gameUser.wins} />
               <StatCard icon={<TrendingDown className="text-red-500" />} label="Losses" value={gameUser.losses} />
               <StatCard icon={<BarChart3 className="text-blue-500" />} label="Win Rate" value={`${winRate}%`} />
             </div>
             {totalGames > 0 && (
-                 <div className="mt-3" aria-label={`Overall performance: Win rate ${winRate} percent`}>
-                    <Label htmlFor="win-loss-progress" className="text-xs font-medium text-muted-foreground" aria-hidden="true">Overall Performance</Label>
-                    <Progress id="win-loss-progress" value={winRate} className="w-full h-2.5 mt-1 [&>div]:bg-gradient-to-r [&>div]:from-green-500 [&>div]:to-blue-500" aria-hidden="true"/>
+                 <div className="mt-3">
+                    <Label htmlFor="win-loss-progress" className="text-xs font-medium text-muted-foreground sr-only">Overall Performance Progress: {winRate}%</Label>
+                    <Progress id="win-loss-progress" value={winRate} className="w-full h-2.5 mt-1 [&>div]:bg-gradient-to-r [&>div]:from-green-500 [&>div]:to-blue-500" aria-label={`Overall win rate: ${winRate} percent`}/>
                  </div>
             )}
           </section>
@@ -215,7 +217,7 @@ export default function ProfilePage() {
           <Separator />
 
           <section aria-labelledby="current-resources-heading">
-            <h3 id="current-resources-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center" aria-hidden="true">
+            <h3 id="current-resources-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
               <Package className="mr-2 h-5 w-5" aria-hidden="true" />
               Current Resources
             </h3>
@@ -229,7 +231,7 @@ export default function ProfilePage() {
           <Separator />
 
           <section aria-labelledby="arsenal-levels-heading">
-            <h3 id="arsenal-levels-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center" aria-hidden="true">
+            <h3 id="arsenal-levels-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
               <Sword className="mr-2 h-5 w-5" aria-hidden="true" />
               Arsenal Levels
             </h3>
@@ -243,18 +245,18 @@ export default function ProfilePage() {
             <>
             <Separator/>
             <section aria-labelledby="recovery-progress-heading">
-                <h3 id="recovery-progress-heading" className="text-lg md:text-xl font-semibold text-destructive mb-3 flex items-center" aria-hidden="true">
+                <h3 id="recovery-progress-heading" className="text-lg md:text-xl font-semibold text-destructive mb-3 flex items-center">
                 <AlertTriangle className="mr-2 h-5 w-5" aria-hidden="true" />
                 Recovery Progress
                 </h3>
                 <div className="space-y-2.5">
-                    <div aria-label={`Successful Attacks: ${gameUser.recoveryProgress.successfulAttacks} out of 10`}>
-                        <p className="text-xs font-medium text-muted-foreground" aria-hidden="true">Successful Attacks: {gameUser.recoveryProgress.successfulAttacks} / 10</p>
-                        <Progress value={(gameUser.recoveryProgress.successfulAttacks / 10) * 100} className="h-2 mt-1" aria-hidden="true"/>
+                    <div>
+                        <p className="text-xs font-medium text-muted-foreground">Successful Attacks: {gameUser.recoveryProgress.successfulAttacks} / 10</p>
+                        <Progress value={(gameUser.recoveryProgress.successfulAttacks / 10) * 100} className="h-2 mt-1" aria-label={`Successful attacks progress: ${gameUser.recoveryProgress.successfulAttacks} out of 10`} />
                     </div>
-                    <div aria-label={`Successful Defenses: ${gameUser.recoveryProgress.successfulDefenses} out of 10`}>
-                        <p className="text-xs font-medium text-muted-foreground" aria-hidden="true">Successful Defenses: {gameUser.recoveryProgress.successfulDefenses} / 10</p>
-                        <Progress value={(gameUser.recoveryProgress.successfulDefenses / 10) * 100} className="h-2 mt-1" aria-hidden="true"/>
+                    <div>
+                        <p className="text-xs font-medium text-muted-foreground">Successful Defenses: {gameUser.recoveryProgress.successfulDefenses} / 10</p>
+                        <Progress value={(gameUser.recoveryProgress.successfulDefenses / 10) * 100} className="h-2 mt-1" aria-label={`Successful defenses progress: ${gameUser.recoveryProgress.successfulDefenses} out of 10`} />
                     </div>
                 </div>
             </section>
@@ -270,17 +272,16 @@ export default function ProfilePage() {
 interface StatCardProps { icon: React.ReactNode; label: string; value: string | number; }
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => (
   <div
-    className="bg-background p-3 rounded-lg shadow-sm flex items-center space-x-2.5 border border-border hover:border-primary/50 transition-colors"
-    role="figure"
-    aria-label={`${label}: ${value}`}
+    className="bg-background p-3 rounded-lg shadow-sm flex flex-col items-center text-center space-y-1 border border-border hover:border-primary/50 transition-colors"
+    role="group" 
+    aria-label={`${label}: ${value}`} 
   >
-    <div aria-hidden="true">
-        {React.cloneElement(icon as React.ReactElement, { className: ((icon as React.ReactElement).props.className || "") + " h-5 w-5", "aria-hidden": "true" })}
-    </div>
-    <div aria-hidden="true">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg md:text-xl font-semibold text-foreground">{value}</p>
-    </div>
+    {React.cloneElement(icon as React.ReactElement, { 
+      className: ((icon as React.ReactElement).props.className || "") + " h-6 w-6 mb-1", 
+      "aria-hidden": "true" 
+    })}
+    <p className="text-sm text-muted-foreground">{label}</p>
+    <p className="text-lg md:text-xl font-semibold text-foreground">{value}</p>
   </div>
 );
 
@@ -292,14 +293,15 @@ interface ResourceItemProps {
 const ResourceItem: React.FC<ResourceItemProps> = ({ icon, label, value }) => (
   <div
     className="bg-background p-2 sm:p-3 rounded-lg shadow-sm flex flex-col items-center text-center space-y-1 border border-border"
-    role="figure"
+    role="group"
     aria-label={`${label}: ${value}`}
   >
-    <div aria-hidden="true">
-      {React.cloneElement(icon as React.ReactElement, { className: ((icon as React.ReactElement).props.className || "") + " h-5 w-5 sm:h-6 sm:w-6", "aria-hidden": "true" })}
-    </div>
-    <p className="text-base sm:text-lg font-bold text-primary" aria-hidden="true">{value}</p>
-    <p className="text-xs text-muted-foreground" aria-hidden="true">{label}</p>
+    {React.cloneElement(icon as React.ReactElement, { 
+      className: ((icon as React.ReactElement).props.className || "") + " h-5 w-5 sm:h-6 sm:w-6", 
+      "aria-hidden": "true" 
+    })}
+    <p className="text-base sm:text-lg font-bold text-primary">{value}</p>
+    <p className="text-xs text-muted-foreground">{label}</p>
   </div>
 );
 
@@ -307,14 +309,17 @@ interface LevelCardProps { icon: React.ReactNode; label: string; value: number; 
 const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) => (
   <div
     className="bg-background p-3 rounded-lg shadow-sm border border-border hover:border-primary/50 transition-colors"
-    role="figure"
+    role="group"
     aria-label={`${label}: Level ${value} out of ${maxLevel}.${value < maxLevel ? ` Progress to level ${value + 1}. Upgrade costs available on Home screen.` : ' Maximum Level Reached.'}`}
   >
-    <div className="flex items-center space-x-2.5 mb-1.5" aria-hidden="true">
+    <div className="flex items-center space-x-2.5 mb-1.5">
        <div className="p-1.5 bg-accent/10 rounded-full" aria-hidden="true">
-         {React.cloneElement(icon as React.ReactElement, { className: ((icon as React.ReactElement).props.className || "") + " h-4 w-4", "aria-hidden": "true" })}
+         {React.cloneElement(icon as React.ReactElement, { 
+           className: ((icon as React.ReactElement).props.className || "") + " h-4 w-4", 
+           "aria-hidden": "true" 
+         })}
        </div>
-      <div aria-hidden="true">
+      <div>
         <p className="text-sm md:text-base font-medium text-foreground">{label}</p>
         <p className="text-lg md:text-xl font-semibold text-accent">Level {value}</p>
       </div>
@@ -322,12 +327,13 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
     <Progress
         value={(value / maxLevel) * 100}
         className="h-1.5 w-full [&>div]:bg-accent"
-        aria-hidden="true"
+        aria-label={`Level ${value} of ${maxLevel} progress bar`}
     />
-     <p className="text-xs text-muted-foreground text-right mt-0.5" aria-hidden="true">
+     <p className="text-xs text-muted-foreground text-right mt-0.5">
        {value < maxLevel ? `Lvl ${value} / ${maxLevel}` : "MAX Level"}
      </p>
   </div>
 );
+    
 
     
