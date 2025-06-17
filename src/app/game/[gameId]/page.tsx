@@ -7,7 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUser } from "@/hooks/useUser";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, Swords, Shield, AlertTriangle, Info, Hourglass, Users, CheckCircle, Gamepad2, Trophy, Copy, LogOut, Trash2, ArrowLeft } from "lucide-react";
+import { Loader2, Swords, Shield, AlertTriangle, Info, Hourglass, Users, CheckCircle, Gamepad2, Trophy, Copy, LogOut, Trash2, ArrowLeft, UserCircle } from "lucide-react"; // Added UserCircle
 import type { GameState, PlayerAction, AttackType, DefenseType, GameUser, GamePlayerState, Room } from "@/types";
 import { db } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, getDoc } from "firebase/firestore";
@@ -242,17 +242,17 @@ export default function GamePage() {
                     <p className="text-lg font-semibold">Players:</p>
                     <div className="space-y-2">
                         <div className="flex items-center justify-center gap-2 p-2 bg-muted/50 rounded-md">
-                            <UserCircle className="h-6 w-6 text-primary" />
+                            <UserCircle className="h-6 w-6 text-primary" aria-hidden="true"/>
                             <span>{hostDisplayName} (Host)</span>
                         </div>
                         {opponentDisplayName ? (
                              <div className="flex items-center justify-center gap-2 p-2 bg-muted/50 rounded-md">
-                                <UserCircle className="h-6 w-6 text-accent" />
+                                <UserCircle className="h-6 w-6 text-accent" aria-hidden="true"/>
                                 <span>{opponentDisplayName}</span>
                             </div>
                         ) : (
                             <div className="flex items-center justify-center gap-2 p-2 border-dashed border rounded-md">
-                                <Hourglass className="h-6 w-6 text-muted-foreground animate-spin" />
+                                <Hourglass className="h-6 w-6 text-muted-foreground animate-spin" aria-hidden="true"/>
                                 <span>Waiting for opponent...</span>
                             </div>
                         )}
@@ -479,3 +479,6 @@ function PlayerInfoCard({ playerGameData, userProfile, opponentUserProfile, isCu
     </Card>
   );
 }
+
+
+    
