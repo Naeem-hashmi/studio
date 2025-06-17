@@ -13,7 +13,7 @@ import Image from "next/image";
 
 export default function HomePage() {
   const { user: firebaseUser, loading: authLoading } = useAuth();
-  const { gameUser, loading: userLoading, error: userError, refreshUserProfile } = useUser(); // Added refreshUserProfile
+  const { gameUser, loading: userLoading, error: userError, refreshUserProfile } = useUser();
   const router = useRouter();
 
   useEffect(() => {
@@ -22,7 +22,30 @@ export default function HomePage() {
     }
   }, [firebaseUser, authLoading, router]);
 
-  if (authLoading || userLoading) {
+  // Handles initial Firebase Auth loading
+  if (authLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
+        <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+        <p className="text-lg text-foreground">Authenticating...</p>
+      </div>
+    );
+  }
+
+  // Handles redirection if auth is resolved and no Firebase user (e.g., after logout or if initial access is unauthed)
+  if (!firebaseUser) {
+    // This state should ideally be brief due to the useEffect redirect.
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
+        <p className="text-lg text-foreground">Redirecting to login...</p>
+      </div>
+    );
+  }
+  
+  // At this point, firebaseUser is confirmed. Now check gameUser states.
+  // userLoading from useUser combines authLoading and profileFetchingLoading.
+  // Since authLoading is false here, userLoading now primarily reflects profileFetchingLoading.
+  if (userLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -31,40 +54,31 @@ export default function HomePage() {
     );
   }
 
-  if (!firebaseUser) {
-    // This state should ideally be caught by the useEffect redirect.
-    // If reached, it means auth is resolved, no user, but redirect hasn't happened.
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
-        <p className="text-lg text-foreground">Redirecting to login...</p>
-      </div>
-    );
-  }
-  
   if (userError) {
      return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-8">
         <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
-        <h2 className="text-2xl font-semibold text-destructive mb-2">Error Loading Profile</h2>
+        <h2 className="text-2xl font-semibold text-destructive mb-2">Error Accessing Profile</h2>
         <p className="text-muted-foreground mb-4">{userError}</p>
         <Button onClick={() => refreshUserProfile()}>Try Again</Button> 
       </div>
     );
   }
 
-  // If firebaseUser exists but gameUser is still null (and no error, and not loading),
-  // it implies the profile might be in the process of creation or just created and needs a re-fetch.
+  // Fallback: If firebaseUser exists, not loading, no error, but gameUser is still null.
+  // This indicates the profile fetch completed but found no profile (e.g. new user, Firestore delay).
+  // The error message from useUser might cover this, but this is a safeguard.
   if (!gameUser) {
     return (
        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-        <p className="text-lg text-foreground">Finalizing profile setup...</p>
-        {/* Optional: Add a refresh button if it gets stuck too long, though useUser should handle it */}
-        {/* <Button onClick={refreshUserProfile} className="mt-4">Refresh Profile</Button> */}
+        <p className="text-lg text-foreground">Finalizing profile setup. This may take a moment...</p>
+        <Button onClick={refreshUserProfile} className="mt-4">Refresh Profile</Button>
       </div>
     );
   }
   
+  // If we reach here, gameUser is successfully loaded.
   const isInRecovery = gameUser.inRecoveryMode;
 
   return (
