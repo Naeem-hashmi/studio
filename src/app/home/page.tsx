@@ -1,14 +1,14 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react"; // Added React import
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { useUser } from "@/hooks/useUser";
-import { Swords, Users, Bot, AlertTriangle, Loader2, GraduationCap, Eye, RefreshCw, ArrowUpCircle, Shield, Axe, UserPlus, HelpCircle } from "lucide-react";
+import { Swords, Users, Bot, AlertTriangle, Loader2, GraduationCap, Eye, RefreshCw, ArrowUpCircle, Shield, Axe, UserPlus, HelpCircle, DollarSign, ToyBrick } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { performStatUpgrade } from "@/lib/firestoreActions";
 import { MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS } from "@/lib/gameConfig";
@@ -153,12 +153,12 @@ export default function HomePage() {
   const canUpgradeAttack = gameUser.attackLevel < MAX_LEVEL;
   const nextAttackLevel = gameUser.attackLevel + 1;
   const attackUpgradeCost = canUpgradeAttack ? ATTACK_UPGRADE_COSTS[nextAttackLevel] : null;
-  const canAffordAttackUpgrade = attackUpgradeCost && gameUser.gold >= attackUpgradeCost.gold && gameUser.military >= attackUpgradeCost.military && gameUser.resources >= attackUpgradeCost.resources;
+  const canAffordAttackUpgrade = attackUpgradeCost && gameUser.gold >= attackUpgradeCost.gold && gameUser.resources >= attackUpgradeCost.resources;
 
   const canUpgradeDefense = gameUser.defenseLevel < MAX_LEVEL;
   const nextDefenseLevel = gameUser.defenseLevel + 1;
   const defenseUpgradeCost = canUpgradeDefense ? DEFENSE_UPGRADE_COSTS[nextDefenseLevel] : null;
-  const canAffordDefenseUpgrade = defenseUpgradeCost && gameUser.gold >= defenseUpgradeCost.gold && gameUser.military >= defenseUpgradeCost.military && gameUser.resources >= defenseUpgradeCost.resources;
+  const canAffordDefenseUpgrade = defenseUpgradeCost && gameUser.gold >= defenseUpgradeCost.gold && gameUser.resources >= defenseUpgradeCost.resources;
 
 
   return (
@@ -179,7 +179,9 @@ export default function HomePage() {
               <AlertTriangle className="mr-2 h-5 w-5 sm:h-6 sm:w-6" aria-hidden="true" />
               Recovery Mode Active
             </CardTitle>
-            <CardDescription className="text-destructive/80 text-xs sm:text-sm">
+            <CardDescription className="text-destructive/80 text-xs sm:text-sm"
+             aria-label={`Recovery Progress: ${gameUser.recoveryProgress.successfulAttacks} out of 10 attacks, ${gameUser.recoveryProgress.successfulDefenses} out of 10 defenses.`}
+            >
               You must complete Training Mode objectives to participate in other battles.
               Win 10 successful attacks and 10 successful defenses.
               Progress: {gameUser.recoveryProgress.successfulAttacks}/10 Attacks, {gameUser.recoveryProgress.successfulDefenses}/10 Defenses.
@@ -234,16 +236,16 @@ export default function HomePage() {
         </CardHeader>
         <CardContent className="grid grid-cols-3 gap-2 sm:gap-4 text-center">
             <div aria-label={`Gold: ${gameUser.gold}`}>
-                <p className="text-xl sm:text-3xl font-bold text-yellow-500">{gameUser.gold}</p>
-                <p className="text-xs sm:text-sm text-muted-foreground">Gold</p>
+                <p className="text-xl sm:text-3xl font-bold text-yellow-500" aria-hidden="true">{gameUser.gold}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground" aria-hidden="true">Gold</p>
             </div>
             <div aria-label={`Military Units: ${gameUser.military}`}>
-                <p className="text-xl sm:text-3xl font-bold text-red-500">{gameUser.military}</p>
-                <p className="text-xs sm:text-sm text-muted-foreground">Military</p>
+                <p className="text-xl sm:text-3xl font-bold text-red-500" aria-hidden="true">{gameUser.military}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground" aria-hidden="true">Military</p>
             </div>
             <div aria-label={`Resources: ${gameUser.resources}`}>
-                <p className="text-xl sm:text-3xl font-bold text-green-500">{gameUser.resources}</p>
-                <p className="text-xs sm:text-sm text-muted-foreground">Resources</p>
+                <p className="text-xl sm:text-3xl font-bold text-green-500" aria-hidden="true">{gameUser.resources}</p>
+                <p className="text-xs sm:text-sm text-muted-foreground" aria-hidden="true">Resources</p>
             </div>
         </CardContent>
       </Card>
@@ -257,7 +259,7 @@ export default function HomePage() {
                 <Axe className="mr-2 h-5 w-5 sm:h-6 sm:w-6" aria-hidden="true" /> Attack Systems
               </CardTitle>
               <CardDescription aria-label={`Current Attack Level: ${gameUser.attackLevel}`}>
-                Current Level: <span className="font-semibold">{gameUser.attackLevel}</span>
+                Current Level: <span className="font-semibold" aria-hidden="true">{gameUser.attackLevel}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -266,17 +268,16 @@ export default function HomePage() {
                   <p className="text-xs sm:text-sm mb-1">Upgrade to Level {nextAttackLevel}:</p>
                   {attackUpgradeCost && (
                     <ul className="text-xs text-muted-foreground list-disc list-inside mb-2 sm:mb-3" 
-                        aria-label={`Cost to upgrade attack to level ${nextAttackLevel}: ${attackUpgradeCost.gold} Gold, ${attackUpgradeCost.military} Military Units, ${attackUpgradeCost.resources} Resources`}>
-                      <li>Gold: {attackUpgradeCost.gold}</li>
-                      <li>Military: {attackUpgradeCost.military}</li>
-                      <li>Resources: {attackUpgradeCost.resources}</li>
+                        aria-label={`Cost to upgrade attack to level ${nextAttackLevel}: ${attackUpgradeCost.gold} Gold, ${attackUpgradeCost.resources} Resources.`}>
+                      <li aria-hidden="true"><DollarSign className="inline h-3 w-3 mr-1 text-yellow-500" /> Gold: {attackUpgradeCost.gold}</li>
+                      <li aria-hidden="true"><ToyBrick className="inline h-3 w-3 mr-1 text-green-500" /> Resources: {attackUpgradeCost.resources}</li>
                     </ul>
                   )}
                   <Button 
                     onClick={() => handleUpgrade('attack')} 
                     disabled={!canUpgradeAttack || !canAffordAttackUpgrade || isUpgradingAttack}
                     className="w-full text-sm sm:text-base"
-                    aria-label={`Upgrade Attack to Level ${nextAttackLevel}. Cost: ${attackUpgradeCost?.gold || 0} gold, ${attackUpgradeCost?.military || 0} military, ${attackUpgradeCost?.resources || 0} resources.`}
+                    aria-label={`Upgrade Attack to Level ${nextAttackLevel}. Cost: ${attackUpgradeCost?.gold || 0} gold, ${attackUpgradeCost?.resources || 0} resources.`}
                   >
                     {isUpgradingAttack ? <Loader2 className="animate-spin" /> : <ArrowUpCircle className="mr-2 h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />}
                     Upgrade Attack to Lvl {nextAttackLevel}
@@ -294,7 +295,7 @@ export default function HomePage() {
                 <Shield className="mr-2 h-5 w-5 sm:h-6 sm:w-6" aria-hidden="true" /> Defense Systems
               </CardTitle>
                <CardDescription aria-label={`Current Defense Level: ${gameUser.defenseLevel}`}>
-                Current Level: <span className="font-semibold">{gameUser.defenseLevel}</span>
+                Current Level: <span className="font-semibold" aria-hidden="true">{gameUser.defenseLevel}</span>
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -303,17 +304,16 @@ export default function HomePage() {
                   <p className="text-xs sm:text-sm mb-1">Upgrade to Level {nextDefenseLevel}:</p>
                   {defenseUpgradeCost && (
                      <ul className="text-xs text-muted-foreground list-disc list-inside mb-2 sm:mb-3"
-                         aria-label={`Cost to upgrade defense to level ${nextDefenseLevel}: ${defenseUpgradeCost.gold} Gold, ${defenseUpgradeCost.military} Military Units, ${defenseUpgradeCost.resources} Resources`}>
-                      <li>Gold: {defenseUpgradeCost.gold}</li>
-                      <li>Military: {defenseUpgradeCost.military}</li>
-                      <li>Resources: {defenseUpgradeCost.resources}</li>
+                         aria-label={`Cost to upgrade defense to level ${nextDefenseLevel}: ${defenseUpgradeCost.gold} Gold, ${defenseUpgradeCost.resources} Resources.`}>
+                      <li aria-hidden="true"><DollarSign className="inline h-3 w-3 mr-1 text-yellow-500" /> Gold: {defenseUpgradeCost.gold}</li>
+                      <li aria-hidden="true"><ToyBrick className="inline h-3 w-3 mr-1 text-green-500" /> Resources: {defenseUpgradeCost.resources}</li>
                     </ul>
                   )}
                   <Button 
                     onClick={() => handleUpgrade('defense')} 
                     disabled={!canUpgradeDefense || !canAffordDefenseUpgrade || isUpgradingDefense}
                     className="w-full text-sm sm:text-base"
-                    aria-label={`Upgrade Defense to Level ${nextDefenseLevel}. Cost: ${defenseUpgradeCost?.gold || 0} gold, ${defenseUpgradeCost?.military || 0} military, ${defenseUpgradeCost?.resources || 0} resources.`}
+                    aria-label={`Upgrade Defense to Level ${nextDefenseLevel}. Cost: ${defenseUpgradeCost?.gold || 0} gold, ${defenseUpgradeCost?.resources || 0} resources.`}
                   >
                     {isUpgradingDefense ? <Loader2 className="animate-spin" /> : <ArrowUpCircle className="mr-2 h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />}
                     Upgrade Defense to Lvl {nextDefenseLevel}

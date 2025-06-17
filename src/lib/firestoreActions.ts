@@ -4,7 +4,7 @@ import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, Timest
 import { db } from "@/lib/firebase";
 import type { GameUser } from "@/types";
 import type { User as FirebaseUserType } from "firebase/auth";
-import { MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS } from "./gameConfig";
+import { MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS, RECOVERY_BASE_STATS } from "./gameConfig";
 
 const USER_COLLECTION = "users";
 
@@ -16,9 +16,9 @@ const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
     email: data.email !== undefined ? data.email : null,
     displayName: data.displayName !== undefined ? data.displayName : "Anonymous Warlord",
     photoURL: data.photoURL !== undefined ? data.photoURL : null,
-    gold: typeof data.gold === 'number' ? data.gold : 100,
-    military: typeof data.military === 'number' ? data.military : 100,
-    resources: typeof data.resources === 'number' ? data.resources : 100,
+    gold: typeof data.gold === 'number' ? data.gold : RECOVERY_BASE_STATS.gold, // Default to recovery base if new
+    military: typeof data.military === 'number' ? data.military : RECOVERY_BASE_STATS.military,
+    resources: typeof data.resources === 'number' ? data.resources : RECOVERY_BASE_STATS.resources,
     attackLevel: typeof data.attackLevel === 'number' ? data.attackLevel : 1,
     defenseLevel: typeof data.defenseLevel === 'number' ? data.defenseLevel : 1,
     wins: typeof data.wins === 'number' ? data.wins : 0,
@@ -29,8 +29,8 @@ const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
                         typeof data.recoveryProgress.successfulDefenses === 'number')
                       ? { successfulAttacks: data.recoveryProgress.successfulAttacks, successfulDefenses: data.recoveryProgress.successfulDefenses }
                       : { successfulAttacks: 0, successfulDefenses: 0 },
-    rank: data.rank !== undefined ? data.rank : null, // Default to null if not provided
-    xp: typeof data.xp === 'number' ? data.xp : 0, // Default to 0 if not provided
+    rank: data.rank !== undefined ? data.rank : null,
+    xp: typeof data.xp === 'number' ? data.xp : 0,
   };
   console.log(`firestoreActions: Constructed GameUser for ${userId}:`, profile);
   return profile;
@@ -64,13 +64,11 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
   try {
     const existingProfileSnap = await getDoc(userProfileRef);
     let finalDataForFirestore: { [key: string]: any };
-    let operationType: 'create' | 'update-auth' = 'create';
-
+    
     if (existingProfileSnap.exists()) {
       console.log(`firestoreActions: Profile already exists for ${firebaseUser.uid}. Ensuring auth fields are current.`);
-      operationType = 'update-auth';
-      const currentData = buildGameUserFromData(firebaseUser.uid, existingProfileSnap.data()); // Build from existing data
-      const updates: { [key: string]: any | FieldValue } = {updatedAt: serverTimestamp()}; // Always update timestamp
+      const currentData = buildGameUserFromData(firebaseUser.uid, existingProfileSnap.data());
+      const updates: { [key: string]: any | FieldValue } = {updatedAt: serverTimestamp()};
       let changed = false;
 
       if (firebaseUser.displayName && firebaseUser.displayName !== currentData.displayName) {
@@ -96,22 +94,25 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
        await updateDoc(userProfileRef, finalDataForFirestore);
     } else {
       console.log(`firestoreActions: Profile does not exist for ${firebaseUser.uid}. Creating new profile with defaults.`);
-      const newProfileData = buildGameUserFromData(firebaseUser.uid, { // Pass firebaseUser info to populate
+      // Pass firebaseUser info to populate, buildGameUserFromData handles game-specific defaults.
+      const newProfileData = buildGameUserFromData(firebaseUser.uid, {
         email: firebaseUser.email || null,
         displayName: firebaseUser.displayName || "Anonymous Warlord",
         photoURL: firebaseUser.photoURL || null,
-        // buildGameUserFromData will apply game-specific defaults like gold, military, etc.
+        // Ensure initial resources are set according to RECOVERY_BASE_STATS, not arbitrary values
+        gold: RECOVERY_BASE_STATS.gold,
+        military: RECOVERY_BASE_STATS.military,
+        resources: RECOVERY_BASE_STATS.resources,
       });
       finalDataForFirestore = { 
         ...newProfileData, 
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      // Ensure no undefined values are being sent
+      
       Object.keys(finalDataForFirestore).forEach(key => {
         if (finalDataForFirestore[key] === undefined) {
-          console.warn(`firestoreActions: Removing undefined key '${key}' before writing to Firestore.`);
-          delete finalDataForFirestore[key]; // Or set to null: finalDataForFirestore[key] = null;
+          finalDataForFirestore[key] = null; // Ensure undefined is not sent
         }
       });
       console.log(`firestoreActions: Data to be set for new profile ${firebaseUser.uid}:`, finalDataForFirestore);
@@ -120,7 +121,6 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
     
     console.log(`firestoreActions: Successfully wrote profile data for ${firebaseUser.uid}.`);
     
-    console.log(`firestoreActions: Re-fetching profile for ${firebaseUser.uid} after write operation.`);
     const finalProfileSnap = await getDoc(userProfileRef);
     if (!finalProfileSnap.exists()) {
       console.error(`firestoreActions: CRITICAL - Profile for ${firebaseUser.uid} NOT FOUND after write operation.`);
@@ -149,7 +149,10 @@ export async function updateUserProfile(userId: string, data: Partial<GameUser>)
 
     Object.keys(updateData).forEach(key => {
       if (updateData[key] === undefined) {
-        delete updateData[key];
+        // Firestore does not accept undefined. Convert to null or remove.
+        // For partial updates, removing might be better unless null has specific meaning.
+        // Let's convert to null to be safe if the field is intended to be cleared.
+        updateData[key] = null;
       }
     });
     
@@ -177,7 +180,7 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
 
       const gameUser = buildGameUserFromData(userId, userSnap.data());
       let currentLevel: number;
-      let costsForNextLevel: { gold: number; military: number; resources: number } | undefined;
+      let costsForNextLevel: { gold: number; resources: number; military?: number } | undefined;
 
       if (statType === 'attack') {
         currentLevel = gameUser.attackLevel;
@@ -196,15 +199,14 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
 
       if (
         gameUser.gold < costsForNextLevel.gold ||
-        gameUser.military < costsForNextLevel.military ||
         gameUser.resources < costsForNextLevel.resources
+        // Military cost is now optional/removed for attack/defense upgrades as per game doc
       ) {
-        throw new Error("Insufficient resources for upgrade.");
+        throw new Error("Insufficient Gold or Resources for upgrade.");
       }
 
       const updates: { [key: string]: any | FieldValue } = {
         gold: gameUser.gold - costsForNextLevel.gold,
-        military: gameUser.military - costsForNextLevel.military,
         resources: gameUser.resources - costsForNextLevel.resources,
         updatedAt: serverTimestamp(),
       };
@@ -230,7 +232,7 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
     if (error.message === "User profile not found. Cannot perform upgrade." ||
         error.message.startsWith("Already at max") ||
         error.message.startsWith("No upgrade cost defined") ||
-        error.message === "Insufficient resources for upgrade.") {
+        error.message.startsWith("Insufficient Gold or Resources")) { // Updated error message
         throw error;
     }
     throw new Error(`Failed to upgrade ${statType}. Please try again.`);
