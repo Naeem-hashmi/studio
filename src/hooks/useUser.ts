@@ -6,7 +6,7 @@ import type { GameUser } from "@/types";
 import { useAuth } from "./useAuth";
 import { getUserProfile } from "@/lib/firestoreActions";
 
-const MAX_RETRIES = 2; // Number of retries for fetching profile if initially not found
+const MAX_RETRIES = 4; // Increased from 2 to 4 (meaning 5 total attempts)
 const RETRY_DELAY_MS = 1500; // Delay between retries
 
 export function useUser() {
@@ -18,7 +18,7 @@ export function useUser() {
   const fetchUserProfileCallback = useCallback(async (uid: string) => {
     console.log(`useUser: fetchUserProfileCallback initiated for UID: ${uid}`);
     setProfileFetchingLoading(true);
-    setError(null);
+    setError(null); // Clear previous errors before new fetch cycle
     let attempts = 0;
 
     while (attempts <= MAX_RETRIES) {
@@ -63,7 +63,6 @@ export function useUser() {
 
     if (authLoading) {
       // Firebase Auth is still loading, so we wait.
-      // Keep profileFetchingLoading true until auth resolves and first fetch attempt is made.
       setProfileFetchingLoading(true);
       setGameUser(null);
       setError(null);
@@ -72,13 +71,15 @@ export function useUser() {
 
     if (firebaseUser) {
       // User is authenticated.
-      // Only fetch if gameUser isn't already loaded for this firebaseUser.
-      if (!gameUser || gameUser.uid !== firebaseUser.uid) {
+      // Only fetch if gameUser isn't already loaded for this firebaseUser OR if there was a previous error
+      // This ensures that if an error occurred, we attempt to refetch if firebaseUser changes (e.g. re-login)
+      if (!gameUser || gameUser.uid !== firebaseUser.uid || error) {
         console.log("useUser Effect: Firebase user authenticated. Fetching game profile for UID:", firebaseUser.uid);
-        setGameUser(null); // Clear stale game user if UID changed
+        setGameUser(null); // Clear stale game user if UID changed or if there was an error
+        // setError(null); // Already cleared at the start of fetchUserProfileCallback
         fetchUserProfileCallback(firebaseUser.uid);
       } else {
-        // Game user already loaded and matches current firebaseUser. No need to fetch.
+        // Game user already loaded and matches current firebaseUser, and no previous error. No need to fetch.
         console.log("useUser Effect: Game user already loaded and matches firebaseUser UID.");
         setProfileFetchingLoading(false); // Ensure loading is false if we're not fetching
       }
@@ -89,15 +90,14 @@ export function useUser() {
       setError(null);
       setProfileFetchingLoading(false);
     }
-  }, [firebaseUser, authLoading, fetchUserProfileCallback, gameUser]); // gameUser included to re-evaluate if it changes externally
+  }, [firebaseUser, authLoading, fetchUserProfileCallback]); // Removed 'error' and 'gameUser' to prevent potential loops from self-updates. fetchUserProfileCallback handles error clearing internally.
 
   const refreshUserProfile = useCallback(() => {
     if (firebaseUser) {
       console.log("useUser: refreshUserProfile called for UID:", firebaseUser.uid);
-      setGameUser(null); // Force re-fetch by clearing current gameUser
+      // Clear current gameUser and error to force re-fetch by fetchUserProfileCallback
+      setGameUser(null); 
       setError(null);
-      // fetchUserProfileCallback will be triggered by the useEffect due to gameUser becoming null
-      // Or, explicitly call it if preferred:
       fetchUserProfileCallback(firebaseUser.uid);
     } else {
       console.log("useUser: refreshUserProfile called but no firebaseUser found.");
