@@ -1,8 +1,7 @@
 
 "use client";
 
-import * as React from "react"; // Import React
-import { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useUser } from "@/hooks/useUser";
@@ -10,20 +9,76 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { ShieldCheck, Sword, DollarSign, Package, TrendingUp, TrendingDown, BarChart3, Loader2, AlertTriangle, RefreshCw, UserCircle, Shield } from "lucide-react";
+import { ShieldCheck, Sword, DollarSign, Package, TrendingUp, TrendingDown, BarChart3, Loader2, AlertTriangle, RefreshCw, UserCircle, Shield, Pencil } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
-import { Label } from "@/components/ui/label"; // Import Label from shadcn/ui
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { updateUserProfile } from "@/lib/firestoreActions";
+
 
 export default function ProfilePage() {
   const { user: firebaseUser, loading: authLoading } = useAuth();
   const { gameUser, loading: userLoading, error, refreshUserProfile } = useUser();
   const router = useRouter();
+  const { toast } = useToast();
+
+  const [isEditNameDialogOpen, setIsEditNameDialogOpen] = useState(false);
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [editNameLoading, setEditNameLoading] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !firebaseUser) {
       router.replace("/login");
     }
   }, [firebaseUser, authLoading, router]);
+
+  useEffect(() => {
+    if (gameUser?.displayName) {
+      setNewDisplayName(gameUser.displayName);
+    }
+  }, [gameUser?.displayName]);
+
+  const handleSaveDisplayName = async () => {
+    if (!firebaseUser || !newDisplayName.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Display name cannot be empty.",
+      });
+      return;
+    }
+
+    setEditNameLoading(true);
+    try {
+      await updateUserProfile(firebaseUser.uid, { displayName: newDisplayName.trim() });
+      await refreshUserProfile();
+      toast({
+        title: "Success",
+        description: "Display name updated successfully.",
+      });
+      setIsEditNameDialogOpen(false);
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Update Failed",
+        description: err.message || "Could not update display name.",
+      });
+    } finally {
+      setEditNameLoading(false);
+    }
+  };
+
 
   if (authLoading || userLoading) {
     return (
@@ -49,9 +104,9 @@ export default function ProfilePage() {
   if (!gameUser) {
     return (
       <div className="text-center py-10">
-        <p>User profile not found. This shouldn't happen.</p>
-        <p>If you've just signed up, try refreshing. If the problem persists, please contact support.</p>
-         <Button onClick={refreshUserProfile} className="mt-4">
+        <p>User profile not found. You might need to complete setup.</p>
+        <Button onClick={() => router.push('/setup-profile')} className="mt-4 mr-2">Go to Setup</Button>
+        <Button onClick={refreshUserProfile} className="mt-4">
           <RefreshCw className="mr-2 h-4 w-4" /> Refresh
         </Button>
       </div>
@@ -73,7 +128,47 @@ export default function ProfilePage() {
               </AvatarFallback>
             </Avatar>
             <div>
-              <CardTitle className="text-4xl font-bold text-primary">{gameUser.displayName}</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-4xl font-bold text-primary">{gameUser.displayName}</CardTitle>
+                <Dialog open={isEditNameDialogOpen} onOpenChange={setIsEditNameDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label="Edit display name">
+                      <Pencil className="h-5 w-5 text-primary/70 hover:text-primary" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle>Edit Display Name</DialogTitle>
+                      <DialogDescription>
+                        Make changes to your display name here. Click save when you're done.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="displayName" className="text-right col-span-1">
+                          Name
+                        </Label>
+                        <Input
+                          id="displayName"
+                          value={newDisplayName}
+                          onChange={(e) => setNewDisplayName(e.target.value)}
+                          className="col-span-3"
+                          aria-label="New display name"
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <DialogClose asChild>
+                         <Button variant="outline">Cancel</Button>
+                      </DialogClose>
+                      <Button type="submit" onClick={handleSaveDisplayName} disabled={editNameLoading}>
+                        {editNameLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Save Changes
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </div>
               <CardDescription className="text-lg text-foreground/80">{firebaseUser?.email}</CardDescription>
               {gameUser.inRecoveryMode && (
                 <p className="text-sm font-semibold text-destructive mt-1 p-1 px-2 bg-destructive/10 rounded-md inline-block">
@@ -111,9 +206,9 @@ export default function ProfilePage() {
               Current Resources
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <ResourceCard icon={<DollarSign className="text-yellow-500" />} label="Gold" value={gameUser.gold} maxValue={1000} /> 
-              <ResourceCard icon={<ShieldCheck className="text-red-500" />} label="Military" value={gameUser.military} maxValue={500} />
-              <ResourceCard icon={<Package className="text-green-500" />} label="Supplies" value={gameUser.resources} maxValue={500} />
+              <ResourceCard icon={<DollarSign className="text-yellow-500" />} label="Gold" value={gameUser.gold} maxValue={10000} /> 
+              <ResourceCard icon={<ShieldCheck className="text-red-500" />} label="Military" value={gameUser.military} maxValue={5000} />
+              <ResourceCard icon={<Package className="text-green-500" />} label="Supplies" value={gameUser.resources} maxValue={5000} />
             </div>
           </section>
           
@@ -128,11 +223,7 @@ export default function ProfilePage() {
               <LevelCard icon={<Sword className="text-orange-500" />} label="Attack Level" value={gameUser.attackLevel} maxLevel={3} />
               <LevelCard icon={<Shield className="text-teal-500" />} label="Defense Level" value={gameUser.defenseLevel} maxLevel={3} />
             </div>
-             <div className="mt-6 text-center">
-                <Button variant="outline" disabled className="bg-primary/10 hover:bg-primary/20">
-                    Upgrade Arsenal (Coming Soon)
-                </Button>
-             </div>
+             {/* Removed "Upgrade Arsenal (Coming Soon)" button as functionality moved to home page */}
           </section>
 
           {gameUser.inRecoveryMode && (
@@ -184,7 +275,7 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ icon, label, value, maxValu
         </div>
         <p className="text-xl font-bold text-primary">{value}</p>
     </div>
-    <Progress value={(value / maxValue) * 100} className="h-2 w-full" aria-label={`${label} resource level: ${value} out of ${maxValue}`} />
+    <Progress value={maxValue > 0 ? (value / maxValue) * 100 : 0} className="h-2 w-full" aria-label={`${label} resource level: ${value} out of ${maxValue}`} />
     <p className="text-xs text-muted-foreground text-right mt-1">{value} / {maxValue}</p>
   </div>
 );
@@ -203,5 +294,3 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
      <p className="text-xs text-muted-foreground text-right mt-1">Next Lvl: {value < maxLevel ? value + 1 : "MAX"}</p>
   </div>
 );
-
-// Removed the custom Label component, as it's now imported from shadcn/ui
