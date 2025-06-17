@@ -1,10 +1,11 @@
 
 "use server";
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, Timestamp, FieldValue, collection, addDoc, query, where, getDocs, orderBy, writeBatch } from "firebase/firestore";
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, Timestamp, FieldValue, collection, addDoc, query, where, getDocs, orderBy, writeBatch, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { GameUser, Room, RiskLevel, GameState, GamePlayerState, PlayerAction } from "@/types";
+import type { GameUser, Room, RiskLevel, GameState, GamePlayerState, PlayerAction, TurnResult, AttackType, DefenseType } from "@/types";
 import type { User as FirebaseUserType } from "firebase/auth";
-import { MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS, RECOVERY_BASE_STATS, MAX_TURNS, RESOURCE_THRESHOLD_PERCENT } from "./gameConfig";
+import { MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS, RECOVERY_BASE_STATS, MAX_TURNS, RESOURCE_THRESHOLD_PERCENT, BLOCKED_ATTACK_PENALTY_PERCENT, SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT, RISK_LEVEL_EFFECTS } from "./gameConfig";
+
 
 const USER_COLLECTION = "users";
 const ROOMS_COLLECTION = "rooms";
@@ -79,7 +80,7 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
          changed = true;
       }
       
-      finalDataForFirestore = changed ? updates : { updatedAt: serverTimestamp() }; // Ensure updatedAt is always set
+      finalDataForFirestore = changed ? updates : { updatedAt: serverTimestamp() }; 
       Object.keys(finalDataForFirestore).forEach(key => {
         if (finalDataForFirestore[key] === undefined) finalDataForFirestore[key] = null;
       });
@@ -95,7 +96,7 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
       });
       finalDataForFirestore = { 
         ...newProfileData, 
-        createdAt: serverTimestamp(), // Set upon creation
+        createdAt: serverTimestamp(), 
         updatedAt: serverTimestamp(),
       };
       
@@ -139,7 +140,7 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
 
       const gameUser = buildGameUserFromData(userId, userSnap.data());
       let currentLevel: number;
-      let costsForNextLevel: { gold: number; resources: number; } | undefined;
+      let costsForNextLevel: { gold: number; resources: number; military?: number } | undefined;
 
       if (statType === 'attack') {
         currentLevel = gameUser.attackLevel;
@@ -154,21 +155,21 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
       if (gameUser.gold < costsForNextLevel.gold || gameUser.resources < costsForNextLevel.resources) {
         throw new Error("Insufficient Gold or Resources for upgrade.");
       }
+      if (costsForNextLevel.military && gameUser.military < costsForNextLevel.military) {
+        throw new Error("Insufficient Military for upgrade.");
+      }
 
       const updates: { [key: string]: any | FieldValue } = {
         gold: gameUser.gold - costsForNextLevel.gold,
         resources: gameUser.resources - costsForNextLevel.resources,
+        ...(costsForNextLevel.military && { military: gameUser.military - costsForNextLevel.military }),
         [statType === 'attack' ? 'attackLevel' : 'defenseLevel']: currentLevel + 1,
         updatedAt: serverTimestamp(),
       };
       transaction.update(userDocRef, updates);
-      // Return the updated user data structure for the calling function, 
-      // but it won't have server-resolved timestamps yet.
-      // The actual server-resolved data will be fetched after transaction.
       return { ...gameUser, ...updates, [statType === 'attack' ? 'attackLevel' : 'defenseLevel']: currentLevel + 1 };
     });
     
-    // Fetch the profile again to get server-resolved timestamps
     const finalProfileSnap = await getDoc(userDocRef);
     if (!finalProfileSnap.exists()) throw new Error("Profile vanished after upgrade transaction.");
     return buildGameUserFromData(userId, finalProfileSnap.data());
@@ -178,14 +179,15 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
     if (error.message.startsWith("User profile not found") ||
         error.message.startsWith("Already at max") ||
         error.message.startsWith("No upgrade cost defined") ||
-        error.message.startsWith("Insufficient Gold or Resources")) {
+        error.message.startsWith("Insufficient Gold or Resources") ||
+        error.message.startsWith("Insufficient Military")) {
         throw error;
     }
     throw new Error(`Failed to upgrade ${statType}. Please try again.`);
   }
 }
 
-// Room Actions
+
 export async function createRoom(
   userId: string,
   hostDisplayName: string | null,
@@ -200,8 +202,10 @@ export async function createRoom(
       isPublic,
       createdBy: userId,
       hostDisplayName: hostDisplayName || "Anonymous Host",
-      status: "WAITING", // Initial status
-      playerIds: [userId], // Host is the first player
+      status: "WAITING",
+      playerIds: [userId], 
+      playerDisplayNames: {[userId]: hostDisplayName || "Anonymous Host"},
+      gameId: null, // Game not created yet
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -213,10 +217,15 @@ export async function createRoom(
   }
 }
 
-// Game State Actions
-
-async function createGameFromRoom(roomId: string, roomData: Room, player1Profile: GameUser, player2Profile: GameUser): Promise<string> {
-  const gameId = roomId; // Often gameId is the same as roomId for simplicity
+// Internal function to create game state, not exported directly for client use
+async function createGameFromRoomTransaction(
+  transaction: any, // Firestore transaction object
+  roomId: string,
+  roomData: Room,
+  player1Profile: GameUser,
+  player2Profile: GameUser
+): Promise<string> {
+  const gameId = roomId; // Game ID is the same as Room ID
   const gameDocRef = doc(db, GAMES_COLLECTION, gameId);
 
   const player1GameState: GamePlayerState = {
@@ -224,7 +233,7 @@ async function createGameFromRoom(roomId: string, roomData: Room, player1Profile
     displayName: player1Profile.displayName,
     initialAttackLevel: player1Profile.attackLevel,
     initialDefenseLevel: player1Profile.defenseLevel,
-    gold: player1Profile.gold,
+    gold: player1Profile.gold, // Snapshot initial resources
     military: player1Profile.military,
     resources: player1Profile.resources,
     hasSubmittedAction: false,
@@ -243,13 +252,13 @@ async function createGameFromRoom(roomId: string, roomData: Room, player1Profile
 
   const newGameState: Omit<GameState, "id"> = {
     roomId: roomId,
-    gameMode: "ROOM_MATCH", // Assuming from room context
+    gameMode: "ROOM_MATCH",
     players: {
       [player1Profile.uid]: player1GameState,
       [player2Profile.uid]: player2GameState,
     },
-    playerIds: [player1Profile.uid, player2Profile.uid], // Ensure order matches roomData if needed
-    status: "CHOOSING_ACTIONS",
+    playerIds: [player1Profile.uid, player2Profile.uid],
+    status: "CHOOSING_ACTIONS", // Game starts, players choose actions
     currentTurn: 1,
     maxTurns: MAX_TURNS,
     riskLevel: roomData.riskLevel,
@@ -259,20 +268,14 @@ async function createGameFromRoom(roomId: string, roomData: Room, player1Profile
     startedAt: serverTimestamp(),
   };
 
-  try {
-    await setDoc(gameDocRef, newGameState);
-    return gameId;
-  } catch (error: any) {
-    console.error(`Error creating game state for room ${roomId}:`, error);
-    throw new Error(`Failed to initialize game: ${error.message}`);
-  }
+  transaction.set(gameDocRef, newGameState);
+  return gameId;
 }
 
-
-export async function joinRoom(roomId: string, userId: string, userDisplayName: string): Promise<string | null> { // Returns gameId if created, else null
+export async function joinRoom(roomId: string, userId: string, userDisplayName: string): Promise<string | null> {
   const roomRef = doc(db, ROOMS_COLLECTION, roomId);
-  const userProfile = await getUserProfile(userId);
-  if (!userProfile) throw new Error("Your profile was not found. Cannot join room.");
+  const joiningUserProfile = await getUserProfile(userId);
+  if (!joiningUserProfile) throw new Error("Your profile was not found. Cannot join room.");
 
   try {
     return await runTransaction(db, async (transaction) => {
@@ -284,7 +287,8 @@ export async function joinRoom(roomId: string, userId: string, userDisplayName: 
 
       if (roomData.playerIds.includes(userId)) {
         console.warn(`User ${userId} is already in room ${roomId}.`);
-        return roomData.gameId || null; // Already in, return existing gameId if any
+        // If game exists and user is part of it, allow re-entry by returning gameId
+        return roomData.gameId || roomId; // Return roomId to navigate to game/lobby
       }
 
       if (roomData.playerIds.length >= 2) {
@@ -294,29 +298,27 @@ export async function joinRoom(roomId: string, userId: string, userDisplayName: 
         throw new Error("Room is not available for joining.");
       }
 
-      const hostProfile = await getUserProfile(roomData.createdBy); // Fetch host profile for game creation
+      const hostProfile = await getUserProfile(roomData.createdBy);
       if (!hostProfile) throw new Error("Host profile could not be loaded. Cannot start game.");
 
       const updatedPlayerIds = [...roomData.playerIds, userId];
+      const updatedPlayerDisplayNames = {
+        ...roomData.playerDisplayNames,
+        [userId]: userDisplayName
+      };
       let newGameId: string | null = null;
 
-      if (updatedPlayerIds.length === 2) {
-        // Room is now full, create the game state
-        newGameId = await createGameFromRoom(roomId, roomData, hostProfile, userProfile);
-        transaction.update(roomRef, {
-          playerIds: updatedPlayerIds,
-          status: "IN_GAME", // Set to IN_GAME as game is created
-          gameId: newGameId,
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        // Still waiting for one more player
-        transaction.update(roomRef, {
-          playerIds: updatedPlayerIds,
-          updatedAt: serverTimestamp(),
-        });
-      }
-      return newGameId; // This will be the gameId if created, or null
+      // This is the second player joining
+      newGameId = await createGameFromRoomTransaction(transaction, roomId, roomData, hostProfile, joiningUserProfile);
+      transaction.update(roomRef, {
+        playerIds: updatedPlayerIds,
+        playerDisplayNames: updatedPlayerDisplayNames,
+        status: "IN_GAME",
+        gameId: newGameId,
+        updatedAt: serverTimestamp(),
+      });
+      
+      return newGameId; // This will be the gameId
     });
   } catch (error: any) {
     console.error(`Error joining room ${roomId} for user ${userId}:`, error);
@@ -324,11 +326,44 @@ export async function joinRoom(roomId: string, userId: string, userDisplayName: 
   }
 }
 
+export async function deleteRoom(roomId: string, userId: string): Promise<void> {
+    const roomRef = doc(db, ROOMS_COLLECTION, roomId);
+    const gameRef = doc(db, GAMES_COLLECTION, roomId); // Assuming gameId is same as roomId
+
+    try {
+        await runTransaction(db, async (transaction) => {
+            const roomSnap = await transaction.get(roomRef);
+            if (!roomSnap.exists()) {
+                throw new Error("Room not found or already deleted.");
+            }
+            const roomData = roomSnap.data() as Room;
+
+            if (roomData.createdBy !== userId) {
+                throw new Error("Only the host can delete the room.");
+            }
+            if (roomData.status === "IN_GAME") {
+                throw new Error("Cannot delete a room once the game has started.");
+            }
+
+            // Delete the room document
+            transaction.delete(roomRef);
+
+            // If a game document was somehow created (shouldn't be if status is WAITING), delete it too.
+            const gameSnap = await transaction.get(gameRef);
+            if (gameSnap.exists()) {
+                transaction.delete(gameRef);
+            }
+        });
+    } catch (error: any) {
+        console.error(`Error deleting room ${roomId} by user ${userId}:`, error);
+        throw new Error(error.message || "Could not delete the room.");
+    }
+}
+
 
 export async function submitPlayerAction(gameId: string, playerId: string, action: PlayerAction): Promise<void> {
   const gameDocRef = doc(db, GAMES_COLLECTION, gameId);
   try {
-    // Atomically update the player's action and check if both players have submitted
     await runTransaction(db, async (transaction) => {
       const gameSnap = await transaction.get(gameDocRef);
       if (!gameSnap.exists()) throw new Error("Game not found.");
@@ -345,18 +380,6 @@ export async function submitPlayerAction(gameId: string, playerId: string, actio
         [playerHasSubmittedPath]: true,
         updatedAt: serverTimestamp(),
       });
-
-      // Check if the other player has also submitted.
-      // This logic ideally triggers a Cloud Function for turn processing.
-      // For now, it's a client-side check that would require one client to initiate.
-      const otherPlayerId = gameState.playerIds.find(id => id !== playerId);
-      if (otherPlayerId && gameState.players[otherPlayerId]?.hasSubmittedAction) {
-        // Both players have submitted.
-        // Here, you would typically trigger a Cloud Function.
-        // For now, we can log or set a flag, but true processing is server-side.
-        console.log(`Both players in game ${gameId} have submitted actions. Turn processing should be triggered.`);
-        // transaction.update(gameDocRef, { status: "PROCESSING_TURN" }); // Example: if client could trigger
-      }
     });
 
   } catch (error: any) {
@@ -365,9 +388,7 @@ export async function submitPlayerAction(gameId: string, playerId: string, actio
   }
 }
 
-// PLACEHOLDER for turn processing. This should be a Cloud Function.
 export async function processTurn(gameId: string): Promise<void> {
-  console.warn(`processTurn called for game ${gameId}. This should be a secure server-side operation (e.g., Cloud Function).`);
   const gameDocRef = doc(db, GAMES_COLLECTION, gameId);
 
   try {
@@ -376,155 +397,230 @@ export async function processTurn(gameId: string): Promise<void> {
       if (!gameSnap.exists()) throw new Error("Game not found for processing.");
       let gameState = gameSnap.data() as GameState;
 
-      // Ensure both players have submitted (double check, though submitPlayerAction should gate this)
-      const player1 = gameState.players[gameState.playerIds[0]!];
-      const player2 = gameState.players[gameState.playerIds[1]!];
-      if (!player1.hasSubmittedAction || !player2.hasSubmittedAction || !player1.currentAction || !player2.currentAction) {
-        console.log("Turn processing skipped: Not all players have submitted actions.");
-        // Potentially reset status if it was stuck in PROCESSING_TURN incorrectly
-        // transaction.update(gameDocRef, { status: "CHOOSING_ACTIONS", updatedAt: serverTimestamp() });
-        return; 
+      if (gameState.status !== "CHOOSING_ACTIONS" && gameState.status !== "PROCESSING_TURN") { // Allow re-processing if stuck
+          console.warn(`Turn processing called for game ${gameId} but status is ${gameState.status}. Attempting to proceed if actions submitted.`);
+      }
+      
+      const playerIds = gameState.playerIds;
+      if (playerIds.length < 2 || !playerIds[0] || !playerIds[1]) {
+          throw new Error("Game is missing players for processing.");
+      }
+      const p1Id = playerIds[0];
+      const p2Id = playerIds[1];
+
+      const player1 = gameState.players[p1Id]!;
+      const player2 = gameState.players[p2Id]!;
+
+      if (!player1.currentAction || !player2.currentAction || !player1.hasSubmittedAction || !player2.hasSubmittedAction) {
+        console.log("Turn processing skipped for game:", gameId, "Not all players have submitted actions.");
+        // Ensure status is CHOOSING_ACTIONS if it was stuck
+        if(gameState.status === "PROCESSING_TURN") {
+            transaction.update(gameDocRef, { status: "CHOOSING_ACTIONS", updatedAt: serverTimestamp() });
+        }
+        return;
+      }
+      
+      // Mark as processing if it's not already
+      if (gameState.status === "CHOOSING_ACTIONS") {
+        transaction.update(gameDocRef, { status: "PROCESSING_TURN", updatedAt: serverTimestamp() });
+        // Get the updated state for processing
+        const updatedGameSnap = await transaction.get(gameDocRef); // Re-fetch after initial update
+        if (!updatedGameSnap.exists()) throw new Error("Game disappeared during processing update.");
+        gameState = updatedGameSnap.data() as GameState;
       }
 
-      // 1. Mark as processing
-      transaction.update(gameDocRef, { status: "PROCESSING_TURN", updatedAt: serverTimestamp() });
-      // Simulate getting the latest state after update
-      // In a real CF, you'd work with the state read at the start of the transaction or re-read if needed.
-      gameState.status = "PROCESSING_TURN";
-
-
-      // --- CORE GAME LOGIC SIMPLIFIED PLACEHOLDER ---
-      // This section needs to implement the full logic from GDD sections 4, 8, 9, 10.
-      // For now, it's a very basic comparison and log.
 
       const p1Action = player1.currentAction!;
       const p2Action = player2.currentAction!;
       
-      let p1AttackBlocked = false;
-      let p2AttackBlocked = false;
-
-      // Player 1 attacks Player 2
-      if (p1Action.attack === DefenseType.BARRICADE_TROOPS && p2Action.defense === DefenseType.BARRICADE_TROOPS) p1AttackBlocked = true;
-      if (p1Action.attack === DefenseType.SECURE_STORAGE && p2Action.defense === DefenseType.SECURE_STORAGE) p1AttackBlocked = true;
-      if (p1Action.attack === DefenseType.GOLD_SENTINEL && p2Action.defense === DefenseType.GOLD_SENTINEL) p1AttackBlocked = true;
+      let p1NewGold = player1.gold;
+      let p1NewMilitary = player1.military;
+      let p1NewResources = player1.resources;
       
-      // Player 2 attacks Player 1
-      if (p2Action.attack === DefenseType.BARRICADE_TROOPS && p1Action.defense === DefenseType.BARRICADE_TROOPS) p2AttackBlocked = true;
-      if (p2Action.attack === DefenseType.SECURE_STORAGE && p1Action.defense === DefenseType.SECURE_STORAGE) p2AttackBlocked = true;
-      if (p2Action.attack === DefenseType.GOLD_SENTINEL && p1Action.defense === DefenseType.GOLD_SENTINEL) p2AttackBlocked = true;
+      let p2NewGold = player2.gold;
+      let p2NewMilitary = player2.military;
+      let p2NewResources = player2.resources;
 
-      const turnResult: TurnResult = {
+      const turnEffects: TurnResult['effects'] = [];
+
+      const riskMultipliers = RISK_LEVEL_EFFECTS[gameState.riskLevel];
+      const p1AttackUpgradeBonus = (player1.initialAttackLevel - 1) * 0.02; // 0% for L1, 2% for L2, 4% for L3
+      const p2AttackUpgradeBonus = (player2.initialAttackLevel - 1) * 0.02;
+      const p1DefenseUpgradeBonus = (player1.initialDefenseLevel - 1) * 0.02;
+      const p2DefenseUpgradeBonus = (player2.initialDefenseLevel - 1) * 0.02;
+
+
+      // --- Player 1 attacks Player 2 ---
+      let p1AttackBlocked = false;
+      if ( (p1Action.attack === AttackType.RAID_CAMP && p2Action.defense === DefenseType.BARRICADE_TROOPS) ||
+           (p1Action.attack === AttackType.RESOURCE_HIJACK && p2Action.defense === DefenseType.SECURE_STORAGE) ||
+           (p1Action.attack === AttackType.VAULT_BREAK && p2Action.defense === DefenseType.GOLD_SENTINEL) ) {
+        p1AttackBlocked = true;
+      }
+
+      let p1ResourceChange = { gold: 0, military: 0, resources: 0 };
+      let p1AttackerGain = { gold: 0, military: 0, resources: 0 };
+
+      if (p1AttackBlocked) {
+        let penalty = 0;
+        let message = `${player1.displayName}'s ${p1Action.attack} was blocked by ${player2.displayName}'s ${p2Action.defense}.`;
+        if (p1Action.attack === AttackType.RAID_CAMP) { penalty = Math.round(player1.military * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewMilitary -= penalty; p1ResourceChange.military = -penalty; }
+        else if (p1Action.attack === AttackType.RESOURCE_HIJACK) { penalty = Math.round(player1.resources * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewResources -= penalty; p1ResourceChange.resources = -penalty; }
+        else if (p1Action.attack === AttackType.VAULT_BREAK) { penalty = Math.round(player1.gold * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewGold -= penalty; p1ResourceChange.gold = -penalty; }
+        message += ` ${player1.displayName} loses ${penalty} of the targeted category.`;
+        turnEffects.push({ actingPlayerId: p1Id, targetPlayerId: p2Id, actionType: 'ATTACK', attackType: p1Action.attack, defenseType: p2Action.defense, isBlocked: true, resourceChanges: {}, attackerResourceGains: p1ResourceChange, message });
+      } else { // P1 Attack Successful
+        let lossAmount = 0;
+        let targetCategoryValue = 0;
+        let message = `${player1.displayName}'s ${p1Action.attack} succeeded against ${player2.displayName}!`;
+        const baseLossPercent = riskMultipliers.lossPercent + p1AttackUpgradeBonus - p2DefenseUpgradeBonus;
+        
+        if (p1Action.attack === AttackType.RAID_CAMP) { targetCategoryValue = player2.military; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p2NewMilitary -= lossAmount; p2ResourceChange.military = -lossAmount; p1AttackerGain.military = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewMilitary += p1AttackerGain.military; }
+        else if (p1Action.attack === AttackType.RESOURCE_HIJACK) { targetCategoryValue = player2.resources; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p2NewResources -= lossAmount; p2ResourceChange.resources = -lossAmount; p1AttackerGain.resources = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewResources += p1AttackerGain.resources; }
+        else if (p1Action.attack === AttackType.VAULT_BREAK) { targetCategoryValue = player2.gold; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p2NewGold -= lossAmount; p2ResourceChange.gold = -lossAmount; p1AttackerGain.gold = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewGold += p1AttackerGain.gold; }
+        message += ` ${player2.displayName} loses ${lossAmount}. ${player1.displayName} gains a share.`;
+        turnEffects.push({ actingPlayerId: p1Id, targetPlayerId: p2Id, actionType: 'ATTACK', attackType: p1Action.attack, defenseType: p2Action.defense, isBlocked: false, resourceChanges: p2ResourceChange, attackerResourceGains: p1AttackerGain, message });
+      }
+
+      // --- Player 2 attacks Player 1 ---
+      let p2AttackBlocked = false;
+      if ( (p2Action.attack === AttackType.RAID_CAMP && p1Action.defense === DefenseType.BARRICADE_TROOPS) ||
+           (p2Action.attack === AttackType.RESOURCE_HIJACK && p1Action.defense === DefenseType.SECURE_STORAGE) ||
+           (p2Action.attack === AttackType.VAULT_BREAK && p1Action.defense === DefenseType.GOLD_SENTINEL) ) {
+        p2AttackBlocked = true;
+      }
+      
+      let p2ResourceChange = { gold: 0, military: 0, resources: 0 }; // Changes for P1 due to P2's attack
+      let p2AttackerGain = { gold: 0, military: 0, resources: 0 }; // Gains for P2
+
+      if (p2AttackBlocked) {
+        let penalty = 0;
+        let message = `${player2.displayName}'s ${p2Action.attack} was blocked by ${player1.displayName}'s ${p1Action.defense}.`;
+        if (p2Action.attack === AttackType.RAID_CAMP) { penalty = Math.round(player2.military * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewMilitary -= penalty; p2ResourceChange.military = -penalty; } // Penalty on P2
+        else if (p2Action.attack === AttackType.RESOURCE_HIJACK) { penalty = Math.round(player2.resources * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewResources -= penalty; p2ResourceChange.resources = -penalty; }
+        else if (p2Action.attack === AttackType.VAULT_BREAK) { penalty = Math.round(player2.gold * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewGold -= penalty; p2ResourceChange.gold = -penalty; }
+        message += ` ${player2.displayName} loses ${penalty} of the targeted category.`;
+        turnEffects.push({ actingPlayerId: p2Id, targetPlayerId: p1Id, actionType: 'ATTACK', attackType: p2Action.attack, defenseType: p1Action.defense, isBlocked: true, resourceChanges: {}, attackerResourceGains: p2ResourceChange, message });
+      } else { // P2 Attack Successful
+        let lossAmount = 0;
+        let targetCategoryValue = 0;
+        let message = `${player2.displayName}'s ${p2Action.attack} succeeded against ${player1.displayName}!`;
+        const baseLossPercent = riskMultipliers.lossPercent + p2AttackUpgradeBonus - p1DefenseUpgradeBonus;
+
+        // P1 is the target here
+        if (p2Action.attack === AttackType.RAID_CAMP) { targetCategoryValue = p1NewMilitary; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p1NewMilitary -= lossAmount; p1ResourceChange.military = (p1ResourceChange.military || 0) - lossAmount; p2AttackerGain.military = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewMilitary += p2AttackerGain.military; }
+        else if (p2Action.attack === AttackType.RESOURCE_HIJACK) { targetCategoryValue = p1NewResources; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p1NewResources -= lossAmount; p1ResourceChange.resources = (p1ResourceChange.resources || 0) - lossAmount; p2AttackerGain.resources = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewResources += p2AttackerGain.resources; }
+        else if (p2Action.attack === AttackType.VAULT_BREAK) { targetCategoryValue = p1NewGold; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p1NewGold -= lossAmount; p1ResourceChange.gold = (p1ResourceChange.gold || 0) - lossAmount; p2AttackerGain.gold = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewGold += p2AttackerGain.gold; }
+        message += ` ${player1.displayName} loses ${lossAmount}. ${player2.displayName} gains a share.`;
+        turnEffects.push({ actingPlayerId: p2Id, targetPlayerId: p1Id, actionType: 'ATTACK', attackType: p2Action.attack, defenseType: p1Action.defense, isBlocked: false, resourceChanges: p1ResourceChange, attackerResourceGains: p2AttackerGain, message });
+      }
+      
+      // Ensure resources don't go below 0 visually, though the check is against 50 for loss
+      p1NewGold = Math.max(0, p1NewGold); p1NewMilitary = Math.max(0, p1NewMilitary); p1NewResources = Math.max(0, p1NewResources);
+      p2NewGold = Math.max(0, p2NewGold); p2NewMilitary = Math.max(0, p2NewMilitary); p2NewResources = Math.max(0, p2NewResources);
+      
+      const currentTurnResult: TurnResult = {
         turnNumber: gameState.currentTurn,
-        playerActions: { [player1.uid]: p1Action, [player2.uid]: p2Action },
-        effects: [], // To be populated by detailed game logic
-        newResourceTotals: { // To be updated by detailed game logic
-          [player1.uid]: { gold: player1.gold, military: player1.military, resources: player1.resources },
-          [player2.uid]: { gold: player2.gold, military: player2.military, resources: player2.resources },
+        playerActions: { [p1Id]: p1Action, [p2Id]: p2Action },
+        effects: turnEffects,
+        newResourceTotals: {
+          [p1Id]: { gold: p1NewGold, military: p1NewMilitary, resources: p1NewResources },
+          [p2Id]: { gold: p2NewGold, military: p2NewMilitary, resources: p2NewResources },
         }
       };
-      
-      // Example effect message (very simplified)
-      turnResult.effects.push({
-        actingPlayerId: player1.uid, targetPlayerId: player2.uid, actionType: 'ATTACK',
-        attackType: p1Action.attack, defenseType: p2Action.defense, isBlocked: p1AttackBlocked,
-        resourceChanges: {}, attackerResourceGains: {},
-        message: `${player1.displayName}'s ${p1Action.attack} vs ${player2.displayName}'s ${p2Action.defense}. Blocked: ${p1AttackBlocked}`
-      });
-       turnResult.effects.push({
-        actingPlayerId: player2.uid, targetPlayerId: player1.uid, actionType: 'ATTACK',
-        attackType: p2Action.attack, defenseType: p1Action.defense, isBlocked: p2AttackBlocked,
-        resourceChanges: {}, attackerResourceGains: {},
-        message: `${player2.displayName}'s ${p2Action.attack} vs ${player1.displayName}'s ${p1Action.defense}. Blocked: ${p2AttackBlocked}`
-      });
-      
-      // --- END OF SIMPLIFIED PLACEHOLDER ---
 
-      // Update game state after processing
       const updates: Partial<GameState> = {
         currentTurn: gameState.currentTurn + 1,
-        status: "CHOOSING_ACTIONS", // Default next state
-        turnHistory: [...gameState.turnHistory, turnResult],
+        status: "CHOOSING_ACTIONS",
+        turnHistory: [...gameState.turnHistory, currentTurnResult],
         players: {
-          ...gameState.players,
-          [player1.uid]: { ...player1, hasSubmittedAction: false, currentAction: null },
-          [player2.uid]: { ...player2, hasSubmittedAction: false, currentAction: null },
+          [p1Id]: { ...player1, gold: p1NewGold, military: p1NewMilitary, resources: p1NewResources, hasSubmittedAction: false, currentAction: null },
+          [p2Id]: { ...player2, gold: p2NewGold, military: p2NewMilitary, resources: p2NewResources, hasSubmittedAction: false, currentAction: null },
         },
         updatedAt: serverTimestamp(),
       };
 
-      // Check for game over conditions (Simplified placeholder)
-      // This needs to check resource thresholds based on GDD Section 2
-      // (e.g., any resource < 50 (absolute) or 50% of initial if initial values can vary)
-      // For now, let's use an absolute 50 as per GDD.
-      const player1Lost = player1.gold < 50 || player1.military < 50 || player1.resources < 50;
-      const player2Lost = player2.gold < 50 || player2.military < 50 || player2.resources < 50;
+      // Check for game over conditions
+      const p1Lost = p1NewGold < 50 || p1NewMilitary < 50 || p1NewResources < 50;
+      const p2Lost = p2NewGold < 50 || p2NewMilitary < 50 || p2NewResources < 50;
+      let gameOver = false;
 
-      if (player1Lost && player2Lost) {
-        updates.status = "GAME_OVER";
-        updates.winnerId = "DRAW";
-        updates.winningCondition = "Both players fell below resource threshold simultaneously.";
-        updates.endedAt = serverTimestamp();
-      } else if (player1Lost) {
-        updates.status = "GAME_OVER";
-        updates.winnerId = player2.uid;
-        updates.winningCondition = `${player1.displayName} fell below resource threshold.`;
-        updates.endedAt = serverTimestamp();
-      } else if (player2Lost) {
-        updates.status = "GAME_OVER";
-        updates.winnerId = player1.uid;
-        updates.winningCondition = `${player2.displayName} fell below resource threshold.`;
-        updates.endedAt = serverTimestamp();
-      } else if (gameState.currentTurn +1 > MAX_TURNS) {
+      if (p1Lost && p2Lost) {
+        updates.status = "GAME_OVER"; updates.winnerId = "DRAW"; updates.winningCondition = "Both players fell below resource threshold."; gameOver = true;
+      } else if (p1Lost) {
+        updates.status = "GAME_OVER"; updates.winnerId = p2Id; updates.winningCondition = `${player1.displayName} fell below resource threshold.`; gameOver = true;
+      } else if (p2Lost) {
+        updates.status = "GAME_OVER"; updates.winnerId = p1Id; updates.winningCondition = `${player2.displayName} fell below resource threshold.`; gameOver = true;
+      } else if (gameState.currentTurn + 1 > MAX_TURNS) {
          updates.status = "GAME_OVER";
-         // Determine winner by total resources (placeholder sum)
-         const p1Total = player1.gold + player1.military + player1.resources;
-         const p2Total = player2.gold + player2.military + player2.resources;
-         if (p1Total > p2Total) updates.winnerId = player1.uid;
-         else if (p2Total > p1Total) updates.winnerId = player2.uid;
+         const p1Total = p1NewGold + p1NewMilitary + p1NewResources;
+         const p2Total = p2NewGold + p2NewMilitary + p2NewResources;
+         if (p1Total > p2Total) updates.winnerId = p1Id;
+         else if (p2Total > p1Total) updates.winnerId = p2Id;
          else updates.winnerId = "DRAW";
          updates.winningCondition = "Max turns reached.";
-         updates.endedAt = serverTimestamp();
+         gameOver = true;
       }
       
-      // If game is over, update user profiles (wins/losses, recovery mode)
-      if (updates.status === "GAME_OVER") {
-        const batch = writeBatch(db);
-        const p1ProfileRef = doc(db, USER_COLLECTION, player1.uid);
-        const p2ProfileRef = doc(db, USER_COLLECTION, player2.uid);
+      if (gameOver) {
+        updates.endedAt = serverTimestamp();
+        // Fetch user profiles to update
+        const p1ProfileSnap = await transaction.get(doc(db, USER_COLLECTION, p1Id));
+        const p2ProfileSnap = await transaction.get(doc(db, USER_COLLECTION, p2Id));
+        if (!p1ProfileSnap.exists() || !p2ProfileSnap.exists()) throw new Error("One or more player profiles not found for game end update.");
 
-        if (updates.winnerId === player1.uid) {
-          batch.update(p1ProfileRef, { wins: player1Profile.wins + 1, updatedAt: serverTimestamp() });
-          batch.update(p2ProfileRef, { losses: player2Profile.losses + 1, updatedAt: serverTimestamp() });
-          // Check if player2 needs recovery
-          if (player2Lost) batch.update(p2ProfileRef, { inRecoveryMode: true, recoveryProgress: { successfulAttacks: 0, successfulDefenses: 0 } });
-        } else if (updates.winnerId === player2.uid) {
-          batch.update(p2ProfileRef, { wins: player2Profile.wins + 1, updatedAt: serverTimestamp() });
-          batch.update(p1ProfileRef, { losses: player1Profile.losses + 1, updatedAt: serverTimestamp() });
-           // Check if player1 needs recovery
-          if (player1Lost) batch.update(p1ProfileRef, { inRecoveryMode: true, recoveryProgress: { successfulAttacks: 0, successfulDefenses: 0 } });
-        } else { // Draw
-          // Optionally handle draws for stats
+        const p1GameUser = buildGameUserFromData(p1Id, p1ProfileSnap.data());
+        const p2GameUser = buildGameUserFromData(p2Id, p2ProfileSnap.data());
+
+        const p1ProfileUpdate: Partial<GameUser> = { updatedAt: serverTimestamp() };
+        const p2ProfileUpdate: Partial<GameUser> = { updatedAt: serverTimestamp() };
+
+        if (updates.winnerId === p1Id) {
+          p1ProfileUpdate.wins = (p1GameUser.wins || 0) + 1;
+          p2ProfileUpdate.losses = (p2GameUser.losses || 0) + 1;
+          if (p2Lost) { p2ProfileUpdate.inRecoveryMode = true; p2ProfileUpdate.recoveryProgress = { successfulAttacks: 0, successfulDefenses: 0 }; }
+        } else if (updates.winnerId === p2Id) {
+          p2ProfileUpdate.wins = (p2GameUser.wins || 0) + 1;
+          p1ProfileUpdate.losses = (p1GameUser.losses || 0) + 1;
+          if (p1Lost) { p1ProfileUpdate.inRecoveryMode = true; p1ProfileUpdate.recoveryProgress = { successfulAttacks: 0, successfulDefenses: 0 }; }
         }
-        await batch.commit();
+        // No specific handling for DRAW stats currently
+        
+        transaction.update(doc(db, USER_COLLECTION, p1Id), p1ProfileUpdate);
+        transaction.update(doc(db, USER_COLLECTION, p2Id), p2ProfileUpdate);
+
+        // Update Room status to CLOSED
+        transaction.update(doc(db, ROOMS_COLLECTION, gameId), { status: "CLOSED", updatedAt: serverTimestamp() });
       }
-
-
       transaction.update(gameDocRef, updates);
     });
   } catch (error: any) {
     console.error(`Error processing turn for game ${gameId}:`, error);
-    // Potentially reset status to CHOOSING_ACTIONS if processing fails critically
-    await updateDoc(gameDocRef, { status: "CHOOSING_ACTIONS", updatedAt: serverTimestamp(), turnProcessingError: error.message });
+    try {
+      await updateDoc(gameDocRef, { status: "CHOOSING_ACTIONS", updatedAt: serverTimestamp(), turnProcessingError: error.message });
+    } catch (updateError) {
+        console.error(`Failed to reset game status after processing error for game ${gameId}:`, updateError)
+    }
     throw new Error(error.message || "Failed to process turn.");
   }
 }
 
-// Get a specific game's state (not real-time, for one-off reads if needed by server actions)
+
 export async function getGame(gameId: string): Promise<GameState | null> {
     const gameDocRef = doc(db, GAMES_COLLECTION, gameId);
     const gameSnap = await getDoc(gameDocRef);
     if (gameSnap.exists()) {
-        return gameSnap.data() as GameState;
+        const data = gameSnap.data();
+        return { id: gameSnap.id, ...data } as GameState; // Ensure id is included
+    }
+    return null;
+}
+
+export async function getRoom(roomId: string): Promise<Room | null> {
+    const roomDocRef = doc(db, ROOMS_COLLECTION, roomId);
+    const roomSnap = await getDoc(roomDocRef);
+    if (roomSnap.exists()) {
+        return { id: roomSnap.id, ...roomSnap.data() } as Room;
     }
     return null;
 }

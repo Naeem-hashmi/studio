@@ -7,36 +7,57 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUser } from "@/hooks/useUser";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, PlusCircle, Users, AlertTriangle, ListChecks, WifiOff, DoorOpen, ShieldQuestion } from "lucide-react";
+import { Loader2, PlusCircle, Users, AlertTriangle, ListChecks, WifiOff, DoorOpen, ShieldQuestion, RefreshCw } from "lucide-react";
 import CreateRoomDialog from "@/components/rooms/CreateRoomDialog";
 import RoomListItem from "@/components/rooms/RoomListItem";
 import type { Room } from "@/types";
-import { db } from "@/lib/firebase"; // Direct import for onSnapshot
-import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { collection, query, where, onSnapshot, orderBy, getDocs } from "firebase/firestore"; // Added getDocs
 import { useToast } from "@/hooks/use-toast";
 import { joinRoom as joinRoomAction } from "@/lib/firestoreActions";
 
 export default function RoomsPage() {
   const { user: firebaseUser, loading: authLoading } = useAuth();
-  const { gameUser, loading: userLoading, error: userErrorHook } = useUser(); // Renamed userError to userErrorHook
+  const { gameUser, loading: userLoading, error: userErrorHook, refreshUserProfile: refreshGameUserProfile } = useUser();
   const router = useRouter();
   const { toast } = useToast();
 
   const [isCreateRoomOpen, setIsCreateRoomOpen] = useState(false);
   const [publicRooms, setPublicRooms] = useState<Room[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
-  const [roomsError, setRoomsError] = useState<string | null>(null); // For room fetching errors
+  const [roomsError, setRoomsError] = useState<string | null>(null);
   const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!authLoading && !firebaseUser) {
-      router.replace("/login?redirect=/rooms");
+  const fetchRoomsManually = useCallback(async () => {
+    if (!firebaseUser) return;
+    setRoomsLoading(true);
+    setRoomsError(null);
+    try {
+      const roomsCollectionRef = collection(db, "rooms");
+      const q = query(
+        roomsCollectionRef,
+        where("isPublic", "==", true),
+        where("status", "==", "WAITING"),
+        orderBy("createdAt", "desc")
+      );
+      const querySnapshot = await getDocs(q);
+      const roomsData = querySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      } as Room));
+      setPublicRooms(roomsData);
+    } catch (error) {
+      console.error("Error fetching public rooms manually:", error);
+      setRoomsError("Could not refresh public rooms. Please try again later.");
+      toast({ variant: "destructive", title: "Refresh Failed", description: "Could not load rooms." });
+    } finally {
+      setRoomsLoading(false);
     }
-  }, [firebaseUser, authLoading, router]);
+  }, [firebaseUser, toast]);
 
   useEffect(() => {
-    if (!firebaseUser) { // Don't try to fetch rooms if user is not authenticated
-      setRoomsLoading(false); // Not loading if no user
+    if (!firebaseUser) {
+      setRoomsLoading(false);
       return;
     }
 
@@ -45,7 +66,7 @@ export default function RoomsPage() {
     const q = query(
       roomsCollectionRef,
       where("isPublic", "==", true),
-      where("status", "==", "WAITING"), // Only show rooms waiting for players
+      where("status", "==", "WAITING"),
       orderBy("createdAt", "desc")
     );
 
@@ -62,13 +83,19 @@ export default function RoomsPage() {
       },
       (error) => {
         console.error("Error fetching public rooms:", error);
-        setRoomsError("Could not load public rooms. Please try again later.");
+        setRoomsError("Could not load public rooms. Please check your connection or try refreshing.");
         setRoomsLoading(false);
       }
     );
 
-    return () => unsubscribe(); // Cleanup listener on component unmount
+    return () => unsubscribe();
   }, [firebaseUser]);
+
+  useEffect(() => {
+    if (!authLoading && !firebaseUser) {
+      router.replace("/login?redirect=/rooms");
+    }
+  }, [firebaseUser, authLoading, router]);
 
   const handleJoinRoom = async (roomId: string) => {
     if (!firebaseUser || !gameUser) {
@@ -82,15 +109,16 @@ export default function RoomsPage() {
 
     setJoiningRoomId(roomId);
     try {
-      const gameId = await joinRoomAction(roomId, firebaseUser.uid, gameUser.displayName || firebaseUser.email || "Anonymous");
+      const gameId = await joinRoomAction(roomId, firebaseUser.uid, gameUser.displayName || firebaseUser.email || "Anonymous Commander");
       if (gameId) {
         toast({ title: "Joined Room & Game Started!", description: "Redirecting to the battlefield..." });
-        router.push(`/game/${gameId}`);
+        router.push(`/game/${gameId}`); // gameId is the roomId which now also serves as gameId
       } else {
-        // This case might happen if the room was still waiting for another player (though joinRoomAction now aims to create game if full)
-        toast({ title: "Joined Room!", description: "Successfully joined the room. Waiting for game to start or opponent..." });
-        // Potentially navigate to a room-specific lobby page: router.push(`/rooms/${roomId}`);
-        // For now, the room list will update or user stays on rooms page.
+        // This case should ideally not happen if joinRoomAction always returns gameId on successful join by 2nd player
+        // Or it might mean the first player joined and is waiting.
+        // The game page will handle the lobby state.
+        toast({ title: "Joined Room!", description: "Waiting for game to fully initialize or opponent..." });
+        router.push(`/game/${roomId}`); // Navigate to the room/game lobby
       }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Join Room", description: error.message || "Could not join the room." });
@@ -108,7 +136,7 @@ export default function RoomsPage() {
     );
   }
 
-  if (!firebaseUser) { // Already handled by useEffect, but good for clarity
+  if (!firebaseUser) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))]">
         <p className="text-lg text-foreground">Redirecting to login...</p>
@@ -116,7 +144,7 @@ export default function RoomsPage() {
     );
   }
   
-  if ((!gameUser && !userLoading) || userErrorHook) { // Check userErrorHook from useUser
+  if ((!gameUser && !userLoading) || userErrorHook) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4">
         <ShieldQuestion className="h-12 w-12 text-destructive mb-4" />
@@ -124,13 +152,17 @@ export default function RoomsPage() {
         <p className="text-muted-foreground mb-4 max-w-md">
           {userErrorHook || "Your game profile needs to be set up or could not be loaded."}
         </p>
+        <div className="flex gap-2">
         <Button onClick={() => router.push(userErrorHook ? "/home" : "/setup-profile")}>
           {userErrorHook ? "Go to Home" : "Go to Profile Setup"}
         </Button>
+        <Button variant="outline" onClick={refreshGameUserProfile}>
+            <RefreshCw className="mr-2 h-4 w-4" /> Refresh Profile
+        </Button>
+        </div>
       </div>
     );
   }
-
 
   return (
     <div className="container mx-auto px-2 sm:px-4 py-6 sm:py-8">
@@ -138,17 +170,29 @@ export default function RoomsPage() {
         <div className="text-center sm:text-left">
           <h1 className="text-3xl sm:text-4xl font-bold text-primary">Game Rooms</h1>
           <p className="text-base sm:text-lg text-foreground/80">
-            Join an existing battle or create your own.
+            Join an existing battle or create your own war room.
           </p>
         </div>
+        <div className="flex gap-2 w-full sm:w-auto">
         <Button
           onClick={() => setIsCreateRoomOpen(true)}
           disabled={gameUser?.inRecoveryMode}
           aria-label="Create New Game Room"
-          className="w-full sm:w-auto"
+          className="flex-grow sm:flex-grow-0"
         >
           <PlusCircle className="mr-2 h-5 w-5" /> Create New Room
         </Button>
+        <Button
+            onClick={fetchRoomsManually}
+            variant="outline"
+            aria-label="Refresh Room List"
+            disabled={roomsLoading}
+            className="flex-grow-0"
+        >
+            <RefreshCw className={`mr-2 h-5 w-5 ${roomsLoading ? 'animate-spin' : ''}`} />
+            Refresh
+        </Button>
+        </div>
       </header>
 
       {gameUser?.inRecoveryMode && (
@@ -171,7 +215,7 @@ export default function RoomsPage() {
         isOpen={isCreateRoomOpen}
         onClose={() => setIsCreateRoomOpen(false)}
         userId={firebaseUser.uid}
-        hostDisplayName={gameUser?.displayName || firebaseUser.email} // Pass gameUser's displayName
+        hostDisplayName={gameUser?.displayName || firebaseUser.email}
       />
 
       <section aria-labelledby="public-rooms-heading">
@@ -183,7 +227,7 @@ export default function RoomsPage() {
             <Loader2 className="h-10 w-10 animate-spin text-primary" />
             <p className="ml-3 text-muted-foreground">Scanning for available war rooms...</p>
           </div>
-        ) : roomsError ? ( // Display room fetching errors
+        ) : roomsError ? (
           <Card className="bg-destructive/10 border-destructive text-center py-10">
             <CardContent className="flex flex-col items-center">
               <WifiOff className="h-12 w-12 text-destructive mb-3" />
@@ -197,7 +241,7 @@ export default function RoomsPage() {
               <DoorOpen className="h-12 w-12 text-muted-foreground mb-3" />
               <p className="text-muted-foreground font-semibold text-lg">No Public Rooms Available</p>
               <p className="text-muted-foreground/80 text-sm">
-                Why not be the first to start a new battle?
+                Be the first to start a new battle! Click "Create New Room" to set up your arena.
               </p>
             </CardContent>
           </Card>
@@ -210,7 +254,7 @@ export default function RoomsPage() {
                 onJoin={() => handleJoinRoom(room.id)}
                 currentUserId={firebaseUser.uid}
                 isJoining={joiningRoomId === room.id}
-                disabled={!!gameUser?.inRecoveryMode || !!joiningRoomId} // Ensure joiningRoomId also disables other buttons
+                disabled={!!gameUser?.inRecoveryMode || !!joiningRoomId}
               />
             ))}
           </div>

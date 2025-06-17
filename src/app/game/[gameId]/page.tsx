@@ -1,20 +1,19 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { useUser } from "@/hooks/useUser"; // To get current user's full profile for display
+import { useUser } from "@/hooks/useUser";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Loader2, Swords, Shield, AlertTriangle, Info, Hourglass, Users, CheckCircle, Gamepad2, Trophy } from "lucide-react";
-import type { GameState, PlayerAction, AttackType, DefenseType, GameUser, GamePlayerState } from "@/types";
+import { Loader2, Swords, Shield, AlertTriangle, Info, Hourglass, Users, CheckCircle, Gamepad2, Trophy, Copy, LogOut, Trash2, ArrowLeft } from "lucide-react";
+import type { GameState, PlayerAction, AttackType, DefenseType, GameUser, GamePlayerState, Room } from "@/types";
 import { db } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, getDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { submitPlayerAction, processTurn as processTurnAction } from "@/lib/firestoreActions"; // Server action
+import { submitPlayerAction, processTurn as processTurnAction, deleteRoom as deleteRoomAction, getRoom } from "@/lib/firestoreActions";
 
-// Define Attack/Defense options based on types/index.ts
 const attackOptions = [
   { id: "RAID_CAMP" as AttackType, label: "Raid Camp", description:"Targets Military", icon: <Swords /> },
   { id: "RESOURCE_HIJACK" as AttackType, label: "Resource Hijack", description:"Targets Resources", icon: <Swords /> },
@@ -27,66 +26,90 @@ const defenseOptions = [
   { id: "GOLD_SENTINEL" as DefenseType, label: "Gold Sentinel", description:"Defends Gold", icon: <Shield /> },
 ];
 
-
 export default function GamePage() {
   const params = useParams();
-  const gameId = params.gameId as string;
+  const gameIdFromUrl = params.gameId as string; // This is effectively the roomId
   const router = useRouter();
   const { user: firebaseUser, loading: authLoading } = useAuth();
   const { gameUser: currentUserGameProfile, loading: userProfileLoading } = useUser();
   const { toast } = useToast();
 
+  const [roomData, setRoomData] = useState<Room | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [gameLoading, setGameLoading] = useState(true);
-  const [gameError, setGameError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [selectedAttack, setSelectedAttack] = useState<AttackType | null>(null);
   const [selectedDefense, setSelectedDefense] = useState<DefenseType | null>(null);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
-  const [isProcessingTurn, setIsProcessingTurn] = useState(false);
+  const [isProcessingTurn, setIsProcessingTurn] = useState(false); // For client-side indication
 
-
-  // Listen to game state changes
+  // Listen to Room changes to manage lobby state
   useEffect(() => {
-    if (!gameId || !firebaseUser) {
-      setGameLoading(firebaseUser ? true : false); // only true if we expect to load game
+    if (!gameIdFromUrl || !firebaseUser) {
+      setLoading(firebaseUser ? true : false);
+      return;
+    }
+    setLoading(true);
+    const roomDocRef = doc(db, "rooms", gameIdFromUrl);
+    const unsubscribeRoom = onSnapshot(roomDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = { id: docSnap.id, ...docSnap.data() } as Room;
+        setRoomData(data);
+        setError(null);
+        if (data.status === "CLOSED" || data.status === "ABORTED") {
+            toast({title: "Room Closed", description: "This room is no longer active."});
+            router.replace("/rooms");
+        }
+      } else {
+        setError("Room not found. It might have been deleted or does not exist.");
+        setRoomData(null);
+        setGameState(null); // If room doesn't exist, game can't exist
+      }
+      // setLoading(false) will be handled by gameState listener or if room not found
+    }, (err) => {
+      console.error("Error fetching room data:", err);
+      setError("Could not load room information. Please try refreshing.");
+      setLoading(false);
+    });
+    return () => unsubscribeRoom();
+  }, [gameIdFromUrl, firebaseUser, router, toast]);
+
+
+  // Listen to GameState changes once room is IN_GAME and gameId is known
+  useEffect(() => {
+    if (!roomData || roomData.status !== "IN_GAME" || !roomData.gameId || !firebaseUser) {
+      if (roomData && roomData.status !== "IN_GAME") setLoading(false); // If room is waiting, not loading game state
+      if (!roomData && !error) setLoading(true) // Still waiting for room data
+      setGameState(null); // No active game if room not IN_GAME
       return;
     }
 
-    setGameLoading(true);
-    const gameDocRef = doc(db, "games", gameId);
-
-    const unsubscribe = onSnapshot(
-      gameDocRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const data = { id: docSnap.id, ...docSnap.data() } as GameState;
-          setGameState(data);
-          // If status was PROCESSING_TURN and now it's CHOOSING_ACTIONS, turn processing is complete
-          if (gameState?.status === "PROCESSING_TURN" && data.status === "CHOOSING_ACTIONS") {
-            setIsProcessingTurn(false);
-          }
-          // Check if current user needs to be re-directed after game over for other player
-          if (data.status === "GAME_OVER" && data.winnerId && data.playerIds.includes(firebaseUser.uid) && data.winnerId !== firebaseUser.uid && data.winnerId !== "DRAW") {
-             // Could add a small delay here before routing
-          }
-        } else {
-          setGameError("Game not found. It might have been concluded or deleted.");
-          setGameState(null);
+    setLoading(true); // Loading game state
+    const gameDocRef = doc(db, "games", roomData.gameId);
+    const unsubscribeGame = onSnapshot(gameDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = { id: docSnap.id, ...docSnap.data() } as GameState;
+        setGameState(data);
+        if (gameState?.status === "PROCESSING_TURN" && data.status === "CHOOSING_ACTIONS") {
+          setIsProcessingTurn(false); // Turn processing done
         }
-        setGameLoading(false);
-      },
-      (error) => {
-        console.error("Error fetching game state:", error);
-        setGameError("Could not load game data. Please try refreshing.");
-        setGameLoading(false);
+      } else {
+        // This might happen briefly if game is being created
+        // setError("Game data not found. It might be initializing or an error occurred.");
+        setGameState(null);
       }
-    );
-    return () => unsubscribe();
-  }, [gameId, firebaseUser, gameState?.status]); // Added gameState.status to re-evaluate some conditions
+      setLoading(false);
+    }, (err) => {
+      console.error("Error fetching game state:", err);
+      setError("Could not load game data. Please try refreshing.");
+      setLoading(false);
+    });
+    return () => unsubscribeGame();
+  }, [roomData, firebaseUser, error, gameState?.status]); // gameState.status to help re-evaluate processing state
 
   const handleActionSubmit = async () => {
-    if (!firebaseUser || !gameId || !gameState || !selectedAttack || !selectedDefense) {
+    if (!firebaseUser || !gameState || !gameState.id || !selectedAttack || !selectedDefense) {
       toast({ variant: "destructive", title: "Invalid Action", description: "Please select both an attack and a defense." });
       return;
     }
@@ -102,41 +125,29 @@ export default function GamePage() {
 
     setIsSubmittingAction(true);
     try {
-      const playerAction: PlayerAction = {
-        playerId: firebaseUser.uid,
-        attack: selectedAttack,
-        defense: selectedDefense,
-      };
-      await submitPlayerAction(gameId, firebaseUser.uid, playerAction);
-      
+      const playerAction: PlayerAction = { playerId: firebaseUser.uid, attack: selectedAttack, defense: selectedDefense };
+      await submitPlayerAction(gameState.id, firebaseUser.uid, playerAction);
       toast({ title: "Action Submitted", description: "Waiting for opponent..." });
-      setSelectedAttack(null); // Reset selections for next turn
+      setSelectedAttack(null);
       setSelectedDefense(null);
 
-      // After submitting, fetch the latest game state to see if both players have submitted
-      // This is a bit of a race condition; ideally a Cloud Function handles this.
-      const updatedGameDoc = await getDoc(doc(db, "games", gameId));
+      // Check if both players have submitted to trigger processing (client-side trigger for now)
+      const updatedGameDoc = await getDoc(doc(db, "games", gameState.id));
       if (updatedGameDoc.exists()) {
         const updatedGameState = {id: updatedGameDoc.id, ...updatedGameDoc.data()} as GameState;
         const allPlayersSubmitted = updatedGameState.playerIds.every(pid => updatedGameState.players[pid]?.hasSubmittedAction);
         
-        if (allPlayersSubmitted && updatedGameState.status === "CHOOSING_ACTIONS") { // ensure it's still choosing
+        if (allPlayersSubmitted && updatedGameState.status === "CHOOSING_ACTIONS") {
+          setIsProcessingTurn(true); // Indicate processing started
           toast({ title: "Opponent Ready!", description: "Processing turn..." });
-          setIsProcessingTurn(true);
-          // TRIGGER TURN PROCESSING (Placeholder - this should be a Cloud Function)
-          // As a temporary measure, one client (e.g., the one who submitted last) could call this.
-          // This is NOT robust for production.
           try {
-            await processTurnAction(gameId); // Call server action for processing
-            // State will update via onSnapshot listener
+            await processTurnAction(gameState.id); // Server action call
           } catch (processError: any) {
              toast({ variant: "destructive", title: "Turn Processing Error", description: processError.message || "Could not process the turn."});
-             setIsProcessingTurn(false);
-             // Potentially reset action submission status or game status via server action if stuck
+             setIsProcessingTurn(false); // Reset if processing fails
           }
         }
       }
-
     } catch (error: any) {
       toast({ variant: "destructive", title: "Submission Failed", description: error.message || "Could not submit your action." });
     } finally {
@@ -144,7 +155,38 @@ export default function GamePage() {
     }
   };
 
-  if (authLoading || userProfileLoading || (gameLoading && !gameState && !gameError) ) {
+  const handleDeleteRoom = async () => {
+    if (!roomData || !firebaseUser || roomData.createdBy !== firebaseUser.uid) {
+        toast({variant: "destructive", title: "Error", description: "You are not authorized to delete this room."});
+        return;
+    }
+    if (roomData.status === "IN_GAME") {
+        toast({variant: "destructive", title: "Error", description: "Cannot delete a room once the game has started."});
+        return;
+    }
+    const confirmDelete = window.confirm("Are you sure you want to delete this room? This action cannot be undone.");
+    if (!confirmDelete) return;
+
+    try {
+        await deleteRoomAction(roomData.id, firebaseUser.uid);
+        toast({title: "Room Deleted", description: "The room has been successfully deleted."});
+        router.replace("/rooms");
+    } catch (err: any) {
+        toast({variant: "destructive", title: "Deletion Failed", description: err.message || "Could not delete the room."});
+    }
+  };
+
+  const handleShareRoom = () => {
+    const url = `${window.location.origin}/game/${gameIdFromUrl}`;
+    navigator.clipboard.writeText(url).then(() => {
+        toast({title: "Link Copied!", description: "Room link copied to clipboard."});
+    }).catch(err => {
+        toast({variant: "destructive", title: "Copy Failed", description: "Could not copy link."});
+    });
+  };
+
+
+  if (authLoading || userProfileLoading || loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4">
         <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -153,18 +195,18 @@ export default function GamePage() {
     );
   }
 
-  if (!firebaseUser) { // Should be caught by AuthProvider, but as a safeguard
-    router.replace(`/login?redirect=/game/${gameId}`);
+  if (!firebaseUser) {
+    router.replace(`/login?redirect=/game/${gameIdFromUrl}`);
     return <div className="text-center py-10">Redirecting to login...</div>;
   }
 
-  if (gameError) {
+  if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-        <h2 className="text-xl font-semibold text-destructive mb-2">Error Loading Game</h2>
-        <p className="text-muted-foreground mb-4 max-w-md">{gameError}</p>
-        <Button onClick={() => router.push("/home")} aria-label="Return to Home Base">Return to Home</Button>
+        <h2 className="text-xl font-semibold text-destructive mb-2">Error Loading Arena</h2>
+        <p className="text-muted-foreground mb-4 max-w-md">{error}</p>
+        <Button onClick={() => router.push("/rooms")} aria-label="Back to Rooms">Back to Rooms</Button>
       </div>
     );
   }
@@ -174,29 +216,68 @@ export default function GamePage() {
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4">
         <Info className="h-12 w-12 text-yellow-500 mb-4" />
         <h2 className="text-xl font-semibold text-yellow-600 mb-2">Profile Unavailable</h2>
-        <p className="text-muted-foreground mb-4 max-w-md">
-          Your game profile could not be loaded. Please ensure it's set up and try again.
-        </p>
+        <p className="text-muted-foreground mb-4 max-w-md">Your game profile could not be loaded. Please ensure it's set up.</p>
         <Button onClick={() => router.push("/home")} aria-label="Return to Home Base">Return to Home</Button>
       </div>
     );
   }
 
-  if (!gameState) {
-     return (
-      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4">
-        <Info className="h-12 w-12 text-blue-500 mb-4" />
-        <h2 className="text-xl font-semibold text-blue-600 mb-2">Game Not Ready</h2>
-        <p className="text-muted-foreground mb-4 max-w-md">
-          The game data is not yet available. This might be because the opponent hasn't joined or the game is still being set up.
-        </p>
-        <Button onClick={() => router.push("/rooms")} aria-label="Back to Rooms">Back to Rooms</Button>
-      </div>
+  // --- Lobby State ---
+  if (!gameState || gameState.status === "WAITING_FOR_PLAYERS" || (roomData && roomData.status === "WAITING")) {
+    const isHost = roomData?.createdBy === firebaseUser.uid;
+    const hostDisplayName = roomData?.playerDisplayNames?.[roomData.createdBy] || "Host";
+    const opponentId = roomData?.playerIds.find(id => id !== roomData.createdBy);
+    const opponentDisplayName = opponentId ? roomData?.playerDisplayNames?.[opponentId] : null;
+
+    return (
+        <div className="container mx-auto px-2 py-4 sm:px-4 sm:py-8 text-center">
+            <Card className="max-w-lg mx-auto shadow-lg">
+                <CardHeader>
+                    <CardTitle className="text-2xl text-primary">
+                        {roomData?.name || "Game Lobby"}
+                    </CardTitle>
+                    <CardDescription>Risk Level: {roomData?.riskLevel || "N/A"}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <p className="text-lg font-semibold">Players:</p>
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-center gap-2 p-2 bg-muted/50 rounded-md">
+                            <UserCircle className="h-6 w-6 text-primary" />
+                            <span>{hostDisplayName} (Host)</span>
+                        </div>
+                        {opponentDisplayName ? (
+                             <div className="flex items-center justify-center gap-2 p-2 bg-muted/50 rounded-md">
+                                <UserCircle className="h-6 w-6 text-accent" />
+                                <span>{opponentDisplayName}</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center gap-2 p-2 border-dashed border rounded-md">
+                                <Hourglass className="h-6 w-6 text-muted-foreground animate-spin" />
+                                <span>Waiting for opponent...</span>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2 pt-4">
+                        <Button onClick={handleShareRoom} variant="outline" className="w-full sm:w-auto">
+                            <Copy className="mr-2 h-4 w-4" /> Share Room Link
+                        </Button>
+                        {isHost && (
+                            <Button onClick={handleDeleteRoom} variant="destructive" className="w-full sm:w-auto">
+                                <Trash2 className="mr-2 h-4 w-4" /> Delete Room
+                            </Button>
+                        )}
+                         <Button onClick={() => router.push("/rooms")} variant="secondary" className="w-full sm:w-auto">
+                            <ArrowLeft className="mr-2 h-4 w-4" /> Back to Rooms
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
     );
   }
   
-  // Ensure playerIds has at least one element before trying to find opponent
-  const opponentId = gameState.playerIds.length > 1 ? gameState.playerIds.find(id => id !== firebaseUser.uid) : undefined;
+  // --- Active Game State ---
+  const opponentId = gameState.playerIds.find(id => id !== firebaseUser.uid);
   const opponentPlayerState = opponentId ? gameState.players[opponentId] : null;
   const currentPlayerState = gameState.players[firebaseUser.uid];
 
@@ -205,7 +286,7 @@ export default function GamePage() {
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <h2 className="text-xl font-semibold text-destructive mb-2">Error: You Are Not In This Game</h2>
-        <p className="text-muted-foreground mb-4 max-w-md">Your profile is not part of this game's active players. This could be due to an error or if you were removed.</p>
+        <p className="text-muted-foreground mb-4 max-w-md">Your profile is not part of this game's active players.</p>
         <Button onClick={() => router.push("/home")} aria-label="Return to Home Base">Return to Home</Button>
       </div>
     );
@@ -229,7 +310,7 @@ export default function GamePage() {
               aria-live="polite"
               aria-atomic="true"
             >
-              {gameState.status.replace("_", " ")}
+              {gameState.status.replace(/_/g, " ")}
             </span>
           </CardTitle>
           <CardDescription className="text-xs sm:text-sm">Risk Level: <span className="font-semibold">{gameState.riskLevel}</span></CardDescription>
@@ -237,17 +318,17 @@ export default function GamePage() {
         <CardContent className="grid md:grid-cols-2 gap-3 sm:gap-4">
           <PlayerInfoCard playerGameData={currentPlayerState} userProfile={currentUserGameProfile} isCurrentUser={true} />
           {opponentPlayerState ?
-            <PlayerInfoCard playerGameData={opponentPlayerState} isCurrentUser={false} />
+            <PlayerInfoCard playerGameData={opponentPlayerState} isCurrentUser={false} opponentUserProfile={opponentId ? (gameState.players[opponentId] ? gameState.players[opponentId] : null) : null} />
              :
             <Card className="flex flex-col items-center justify-center p-4 sm:p-6 border-dashed min-h-[100px] sm:min-h-[120px]">
                 <Users className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground mb-2"/>
-                <p className="text-sm text-muted-foreground">Waiting for opponent...</p>
+                <p className="text-sm text-muted-foreground">Waiting for opponent data...</p>
             </Card>
           }
         </CardContent>
       </Card>
 
-      {isProcessingTurn && (
+      {isProcessingTurn && gameState.status !== "CHOOSING_ACTIONS" && ( // Show only if actually processing, not just submitted
          <Card className="my-4 sm:my-6 p-4 sm:p-6 text-center bg-yellow-50 border-yellow-300">
           <Loader2 className="h-10 w-10 text-yellow-500 mx-auto mb-3 animate-spin" />
           <CardTitle className="text-lg sm:text-xl text-yellow-700">Processing Turn...</CardTitle>
@@ -339,7 +420,6 @@ export default function GamePage() {
         </Card>
       )}
 
-
       {gameState.turnHistory && gameState.turnHistory.length > 0 && (
         <Card className="mt-6 sm:mt-8 shadow-sm">
           <CardHeader><CardTitle className="text-base sm:text-lg">Battle Log</CardTitle></CardHeader>
@@ -352,7 +432,6 @@ export default function GamePage() {
                 {turn.effects.map((effect, effectIndex) => (
                     <p key={effectIndex} className="text-muted-foreground leading-snug">
                         {effect.message}
-                        {/* Further details can be added here if needed */}
                     </p>
                 ))}
               </div>
@@ -364,23 +443,18 @@ export default function GamePage() {
   );
 }
 
-
 interface PlayerInfoCardProps {
   playerGameData: GamePlayerState;
-  userProfile?: GameUser | null; // Full user profile (e.g. for current user to show latest total gold)
+  userProfile?: GameUser | null; 
+  opponentUserProfile?: GamePlayerState | null; // Pass full opponent GamePlayerState if available
   isCurrentUser: boolean;
 }
 
-function PlayerInfoCard({ playerGameData, userProfile, isCurrentUser }: PlayerInfoCardProps) {
-  // Display name from game state player data for consistency during the game
+function PlayerInfoCard({ playerGameData, userProfile, opponentUserProfile, isCurrentUser }: PlayerInfoCardProps) {
   const displayName = playerGameData.displayName || "Player";
-
-  // Resources are from the GamePlayerState, reflecting current game values
   const goldInGame = playerGameData.gold;
   const militaryInGame = playerGameData.military;
   const resourcesInGame = playerGameData.resources;
-
-  // Levels are from GamePlayerState (snapshot at game start)
   const attackLevel = playerGameData.initialAttackLevel;
   const defenseLevel = playerGameData.initialDefenseLevel;
 
@@ -405,4 +479,3 @@ function PlayerInfoCard({ playerGameData, userProfile, isCurrentUser }: PlayerIn
     </Card>
   );
 }
-

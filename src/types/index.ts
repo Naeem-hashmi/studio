@@ -13,14 +13,13 @@ export interface GameUser {
   defenseLevel: number;
   wins: number;
   losses: number;
-  rank: string | null; // Could be e.g., "Bronze", "Silver", "Gold"
+  rank: string | null;
   xp: number;
   inRecoveryMode: boolean;
   recoveryProgress: {
     successfulAttacks: number;
     successfulDefenses: number;
   };
-  // Timestamps for user record
   createdAt?: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 }
@@ -29,105 +28,99 @@ export type GameMode = "TRAINING" | "QUICK_WAR" | "ROOM_MATCH";
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH";
 
 export enum AttackType {
-  RAID_CAMP = "RAID_CAMP", // Target: Military
-  RESOURCE_HIJACK = "RESOURCE_HIJACK", // Target: Resources
-  VAULT_BREAK = "VAULT_BREAK", // Target: Gold
+  RAID_CAMP = "RAID_CAMP",
+  RESOURCE_HIJACK = "RESOURCE_HIJACK",
+  VAULT_BREAK = "VAULT_BREAK",
 }
 
 export enum DefenseType {
-  BARRICADE_TROOPS = "BARRICADE_TROOPS", // Defends against Raid Camp
-  SECURE_STORAGE = "SECURE_STORAGE", // Defends against Resource Hijack
-  GOLD_SENTINEL = "GOLD_SENTINEL", // Defends against Vault Break
+  BARRICADE_TROOPS = "BARRICADE_TROOPS",
+  SECURE_STORAGE = "SECURE_STORAGE",
+  GOLD_SENTINEL = "GOLD_SENTINEL",
 }
 
 export interface PlayerAction {
   playerId: string;
   attack: AttackType;
   defense: DefenseType;
-  // timestamp: Timestamp | FieldValue; // When action was submitted
 }
 
-// Represents the state of a player within a specific game instance
 export interface GamePlayerState {
   uid: string;
   displayName: string | null;
-  initialAttackLevel: number; // Snapshot at game start
-  initialDefenseLevel: number; // Snapshot at game start
-  // Live resources for THIS game instance
+  initialAttackLevel: number;
+  initialDefenseLevel: number;
   gold: number;
   military: number;
   resources: number;
-  // Action for the current turn
   currentAction?: PlayerAction | null;
   hasSubmittedAction: boolean;
-  isAI?: boolean; // For training mode
+  isAI?: boolean;
+}
+
+export interface TurnResultEffect {
+  actingPlayerId: string;
+  targetPlayerId: string;
+  actionType: 'ATTACK' | 'DEFENSE_EFFECT';
+  attackType?: AttackType;
+  defenseType?: DefenseType;
+  isBlocked: boolean;
+  resourceChanges: { // Net change for the targetPlayerId for THIS specific effect (negative for loss)
+    gold?: number;
+    military?: number;
+    resources?: number;
+  };
+  attackerResourceGains?: { // What the attacker gained from THIS specific successful attack
+    gold?: number;
+    military?: number;
+    resources?: number;
+  };
+  message: string;
 }
 
 export interface TurnResult {
   turnNumber: number;
-  playerActions: { [playerId: string]: PlayerAction }; // Actions taken by each player this turn
-  effects: Array<{ // Detailed effects of actions
-    actingPlayerId: string; // Player whose action is being described (attacker)
-    targetPlayerId: string; // Player affected by the action
-    actionType: 'ATTACK' | 'DEFENSE_EFFECT'; // Could expand
-    attackType?: AttackType;
-    defenseType?: DefenseType;
-    isBlocked: boolean;
-    resourceChanges: { // Net change for the targetPlayerId for THIS specific effect
-      gold?: number; // e.g., -10 if target lost gold
-      military?: number;
-      resources?: number;
-    };
-    attackerResourceGains?: { // What the attacker gained from THIS specific successful attack
-      gold?: number;
-      military?: number;
-      resources?: number;
-    };
-    message: string; // Descriptive message, e.g., "Player A's Raid Camp was blocked by Player B's Barricade!"
-  }>;
-  // Snapshot of resources AFTER this turn's effects are applied
+  playerActions: { [playerId: string]: PlayerAction };
+  effects: TurnResultEffect[];
   newResourceTotals: {
     [playerId: string]: { gold: number; military: number; resources: number; };
   };
-  // Who, if anyone, entered recovery mode this turn
   enteredRecoveryMode?: string[];
 }
 
-
 export interface GameState {
-  id: string; // Firestore document ID, should be unique for the game
+  id: string;
   gameMode: GameMode;
   players: {
-    [playerId: string]: GamePlayerState; // Keyed by player UID
+    [playerId: string]: GamePlayerState;
   };
-  playerIds: [string, string?]; // Tuple for one or two players. Second is optional until matched.
+  playerIds: [string, string?]; 
   status: "WAITING_FOR_PLAYERS" | "CHOOSING_ACTIONS" | "PROCESSING_TURN" | "GAME_OVER" | "ABORTED";
   currentTurn: number;
   maxTurns: number;
   riskLevel: RiskLevel;
   turnHistory: TurnResult[];
-  winnerId?: string | "DRAW" | null; // UID of the winner, 'DRAW', or null if ongoing/aborted
-  winningCondition?: string; // e.g., "Opponent resources depleted", "Max turns reached"
-  // Timestamps for game lifecycle
+  winnerId?: string | "DRAW" | null;
+  winningCondition?: string;
   createdAt: Timestamp | FieldValue;
   updatedAt: Timestamp | FieldValue;
-  startedAt?: Timestamp | FieldValue; // When game actually begins with 2 players
+  startedAt?: Timestamp | FieldValue;
   endedAt?: Timestamp | FieldValue;
   roomId: string; // Link back to the room this game originated from
+  turnProcessingError?: string | null; // For debugging if processing fails
 }
 
-
 export interface Room {
-  id: string; // Firestore document ID
-  name: string | null; // User-defined room name (for public rooms, can be null for private)
+  id: string;
+  name: string | null;
   riskLevel: RiskLevel;
   isPublic: boolean;
-  createdBy: string; // UID of the player who created the room
+  createdBy: string;
   hostDisplayName: string | null;
-  status: "WAITING" | "FULL" | "IN_GAME" | "CLOSED" | "ABORTED"; // Room status
-  playerIds: string[]; // List of UIDs of players currently in the room (max 2)
-  gameId?: string | null; // Associated gameId when a match starts
-  // Timestamps for room lifecycle
+  playerDisplayNames: {[playerId: string]: string | null }; // Store display names of players in room
+  status: "WAITING" | "IN_GAME" | "CLOSED" | "ABORTED";
+  playerIds: string[];
+  gameId?: string | null; // ID of the GameState document, typically same as roomId
   createdAt: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 }

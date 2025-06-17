@@ -18,7 +18,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Loader2, ShieldAlert, ShieldCheck, ShieldHalf, Trophy } from "lucide-react";
 import type { RiskLevel } from "@/types";
-import { createRoom as createRoomAction } from "@/lib/firestoreActions"; // Server Action
+import { createRoom as createRoomAction } from "@/lib/firestoreActions";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 
@@ -30,7 +30,7 @@ interface CreateRoomDialogProps {
 }
 
 const riskLevels: { value: RiskLevel; label: string; icon: React.ReactNode, description: string }[] = [
-  { value: "LOW", label: "Low Risk", icon: <ShieldCheck className="h-5 w-5 text-green-500" />, description: "Safer battles, smaller resource transfers (6-8%)." },
+  { value: "LOW", label: "Low Risk", icon: <ShieldCheck className="h-5 w-5 text-green-500" />, description: "Safer battles, smaller transfers (6-8%)." },
   { value: "MEDIUM", label: "Medium Risk", icon: <ShieldHalf className="h-5 w-5 text-yellow-500" />, description: "Balanced engagements, moderate transfers (10-12%)." },
   { value: "HIGH", label: "High Risk", icon: <ShieldAlert className="h-5 w-5 text-red-500" />, description: "High stakes, largest transfers (13-16%)." },
 ];
@@ -44,7 +44,6 @@ export default function CreateRoomDialog({ isOpen, onClose, userId, hostDisplayN
   const router = useRouter();
 
   useEffect(() => {
-    // Reset form when dialog opens/closes or user changes
     if (isOpen) {
       setRoomName(hostDisplayName ? `${hostDisplayName}'s Game` : "New Battle Room");
       setSelectedRiskLevel("MEDIUM");
@@ -71,11 +70,10 @@ export default function CreateRoomDialog({ isOpen, onClose, userId, hostDisplayN
         return;
     }
 
-
     setIsLoading(true);
     try {
-      const finalRoomName = isPublic ? roomName.trim() : `${hostDisplayName || 'Private'}'s Room - ${Date.now().toString().slice(-4)}`;
-      const newRoomId = await createRoomAction(
+      const finalRoomName = isPublic ? roomName.trim() : `Private Room (${hostDisplayName || 'Host'})`;
+      const newRoomId = await createRoomAction( // This action now only creates the room, not the game
         userId,
         hostDisplayName,
         finalRoomName,
@@ -84,10 +82,10 @@ export default function CreateRoomDialog({ isOpen, onClose, userId, hostDisplayN
       );
       toast({
         title: "Room Created!",
-        description: `Room "${finalRoomName}" is ready.`,
+        description: `Room "${finalRoomName}" is ready. Waiting for opponent...`,
       });
       onClose();
-      router.push(`/game/${newRoomId}`); // Navigate to the game/lobby page for the new room
+      router.push(`/game/${newRoomId}`); // Navigate to the game lobby page for the new room
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -123,7 +121,7 @@ export default function CreateRoomDialog({ isOpen, onClose, userId, hostDisplayN
               className="mt-1 bg-background border-input"
               maxLength={50}
             />
-            {!isPublic && <p className="text-xs text-muted-foreground mt-1">Private rooms are auto-named.</p>}
+            {!isPublic && <p className="text-xs text-muted-foreground mt-1">Private rooms are auto-named by host.</p>}
           </div>
 
           <div>
@@ -153,12 +151,12 @@ export default function CreateRoomDialog({ isOpen, onClose, userId, hostDisplayN
           </div>
 
           <div className="flex items-center justify-between pt-2">
-            <Label htmlFor="isPublic" className="text-foreground/90 font-medium flex flex-col">
+            <Label htmlFor="isPublicSwitch" className="text-foreground/90 font-medium flex flex-col">
               Public Room
               <span className="text-xs text-muted-foreground font-normal">Visible to everyone in the room list.</span>
             </Label>
             <Switch
-              id="isPublic"
+              id="isPublicSwitch" // Changed id to avoid conflict if Label's htmlFor was 'isPublic'
               checked={isPublic}
               onCheckedChange={setIsPublic}
               disabled={isLoading}
@@ -172,7 +170,7 @@ export default function CreateRoomDialog({ isOpen, onClose, userId, hostDisplayN
               Cancel
             </Button>
           </DialogClose>
-          <Button type="submit" onClick={handleSubmit} disabled={isLoading} className="min-w-[100px]">
+          <Button type="submit" onClick={handleSubmit} disabled={isLoading || (isPublic && !roomName.trim())} className="min-w-[100px]">
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin" />
             ) : (
