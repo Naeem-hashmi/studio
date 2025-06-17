@@ -58,6 +58,15 @@ export default function ProfilePage() {
       });
       return;
     }
+    if (newDisplayName.trim().length > 30) {
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Display name cannot exceed 30 characters.",
+      });
+      return;
+    }
+
 
     setEditNameLoading(true);
     try {
@@ -118,18 +127,18 @@ export default function ProfilePage() {
 
   return (
     <div className="container mx-auto px-4 py-12">
-      <Card className="w-full max-w-3xl mx-auto shadow-xl border-primary/20 overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-primary/20 to-accent/20 p-8">
-          <div className="flex items-center space-x-6">
-            <Avatar className="h-24 w-24 border-4 border-background shadow-lg">
+      <Card className="w-full max-w-3xl mx-auto shadow-xl border-primary/20 overflow-hidden bg-card">
+        <CardHeader className="bg-primary/10 p-6 md:p-8">
+          <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6">
+            <Avatar className="h-20 w-20 md:h-24 md:w-24 border-4 border-background shadow-lg">
               <AvatarImage src={firebaseUser?.photoURL || undefined} alt={gameUser.displayName || "User"} />
-              <AvatarFallback className="text-4xl bg-primary/30 text-primary-foreground">
+              <AvatarFallback className="text-3xl md:text-4xl bg-primary/30 text-primary-foreground">
                 {gameUser.displayName ? gameUser.displayName.charAt(0).toUpperCase() : <UserCircle size={48}/>}
               </AvatarFallback>
             </Avatar>
-            <div>
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-4xl font-bold text-primary">{gameUser.displayName}</CardTitle>
+            <div className="text-center md:text-left">
+              <div className="flex items-center justify-center md:justify-start gap-2">
+                <CardTitle className="text-3xl md:text-4xl font-bold text-primary">{gameUser.displayName}</CardTitle>
                 <Dialog open={isEditNameDialogOpen} onOpenChange={setIsEditNameDialogOpen}>
                   <DialogTrigger asChild>
                     <Button variant="ghost" size="icon" aria-label="Edit display name">
@@ -140,20 +149,21 @@ export default function ProfilePage() {
                     <DialogHeader>
                       <DialogTitle>Edit Display Name</DialogTitle>
                       <DialogDescription>
-                        Make changes to your display name here. Click save when you're done.
+                        Choose a new display name (max 30 characters). Click save when you&apos;re done.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                       <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="displayName" className="text-right col-span-1">
+                        <Label htmlFor="displayNameEditInput" className="text-right col-span-1">
                           Name
                         </Label>
                         <Input
-                          id="displayName"
+                          id="displayNameEditInput"
                           value={newDisplayName}
                           onChange={(e) => setNewDisplayName(e.target.value)}
                           className="col-span-3"
-                          aria-label="New display name"
+                          aria-label="New display name input"
+                          maxLength={30}
                         />
                       </div>
                     </div>
@@ -161,7 +171,7 @@ export default function ProfilePage() {
                       <DialogClose asChild>
                          <Button variant="outline">Cancel</Button>
                       </DialogClose>
-                      <Button type="submit" onClick={handleSaveDisplayName} disabled={editNameLoading}>
+                      <Button type="submit" onClick={handleSaveDisplayName} disabled={editNameLoading || !newDisplayName.trim() || newDisplayName.trim().length > 30}>
                         {editNameLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Save Changes
                       </Button>
@@ -169,9 +179,9 @@ export default function ProfilePage() {
                   </DialogContent>
                 </Dialog>
               </div>
-              <CardDescription className="text-lg text-foreground/80">{firebaseUser?.email}</CardDescription>
+              <CardDescription className="text-md md:text-lg text-foreground/80">{firebaseUser?.email}</CardDescription>
               {gameUser.inRecoveryMode && (
-                <p className="text-sm font-semibold text-destructive mt-1 p-1 px-2 bg-destructive/10 rounded-md inline-block">
+                <p className="text-xs md:text-sm font-semibold text-destructive mt-1 p-1 px-2 bg-destructive/10 rounded-md inline-block">
                   <AlertTriangle className="inline h-4 w-4 mr-1" /> In Recovery Mode
                 </p>
               )}
@@ -179,13 +189,13 @@ export default function ProfilePage() {
           </div>
         </CardHeader>
         
-        <CardContent className="p-8 space-y-8">
+        <CardContent className="p-6 md:p-8 space-y-8">
           <section>
-            <h3 className="text-2xl font-semibold text-primary mb-4 flex items-center">
-              <BarChart3 className="mr-3 h-6 w-6" />
+            <h3 className="text-xl md:text-2xl font-semibold text-primary mb-4 flex items-center">
+              <BarChart3 className="mr-3 h-5 w-5 md:h-6 md:w-6" />
               Battle Statistics
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
               <StatCard icon={<TrendingUp className="text-green-500" />} label="Wins" value={gameUser.wins} />
               <StatCard icon={<TrendingDown className="text-red-500" />} label="Losses" value={gameUser.losses} />
               <StatCard icon={<BarChart3 className="text-blue-500" />} label="Win Rate" value={`${winRate}%`} />
@@ -201,11 +211,11 @@ export default function ProfilePage() {
           <Separator />
 
           <section>
-            <h3 className="text-2xl font-semibold text-primary mb-6 flex items-center">
-              <Package className="mr-3 h-6 w-6" />
+            <h3 className="text-xl md:text-2xl font-semibold text-primary mb-6 flex items-center">
+              <Package className="mr-3 h-5 w-5 md:h-6 md:w-6" />
               Current Resources
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
               <ResourceCard icon={<DollarSign className="text-yellow-500" />} label="Gold" value={gameUser.gold} maxValue={10000} /> 
               <ResourceCard icon={<ShieldCheck className="text-red-500" />} label="Military" value={gameUser.military} maxValue={5000} />
               <ResourceCard icon={<Package className="text-green-500" />} label="Supplies" value={gameUser.resources} maxValue={5000} />
@@ -215,23 +225,22 @@ export default function ProfilePage() {
           <Separator />
 
           <section>
-            <h3 className="text-2xl font-semibold text-primary mb-6 flex items-center">
-              <Sword className="mr-3 h-6 w-6" />
+            <h3 className="text-xl md:text-2xl font-semibold text-primary mb-6 flex items-center">
+              <Sword className="mr-3 h-5 w-5 md:h-6 md:w-6" />
               Arsenal Levels
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
               <LevelCard icon={<Sword className="text-orange-500" />} label="Attack Level" value={gameUser.attackLevel} maxLevel={3} />
               <LevelCard icon={<Shield className="text-teal-500" />} label="Defense Level" value={gameUser.defenseLevel} maxLevel={3} />
             </div>
-             {/* Removed "Upgrade Arsenal (Coming Soon)" button as functionality moved to home page */}
           </section>
 
           {gameUser.inRecoveryMode && (
             <>
             <Separator/>
             <section>
-                <h3 className="text-2xl font-semibold text-destructive mb-4 flex items-center">
-                <AlertTriangle className="mr-3 h-6 w-6" />
+                <h3 className="text-xl md:text-2xl font-semibold text-destructive mb-4 flex items-center">
+                <AlertTriangle className="mr-3 h-5 w-5 md:h-6 md:w-6" />
                 Recovery Progress
                 </h3>
                 <div className="space-y-3">
@@ -260,7 +269,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => (
     <div className="p-2 bg-primary/10 rounded-full">{icon}</div>
     <div>
       <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-2xl font-semibold text-foreground">{value}</p>
+      <p className="text-xl md:text-2xl font-semibold text-foreground">{value}</p>
     </div>
   </div>
 );
@@ -271,9 +280,9 @@ const ResourceCard: React.FC<ResourceCardProps> = ({ icon, label, value, maxValu
     <div className="flex items-center justify-between mb-1">
         <div className="flex items-center space-x-2">
             {icon}
-            <p className="text-lg font-medium text-foreground">{label}</p>
+            <p className="text-md md:text-lg font-medium text-foreground">{label}</p>
         </div>
-        <p className="text-xl font-bold text-primary">{value}</p>
+        <p className="text-lg md:text-xl font-bold text-primary">{value}</p>
     </div>
     <Progress value={maxValue > 0 ? (value / maxValue) * 100 : 0} className="h-2 w-full" aria-label={`${label} resource level: ${value} out of ${maxValue}`} />
     <p className="text-xs text-muted-foreground text-right mt-1">{value} / {maxValue}</p>
@@ -286,11 +295,12 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
     <div className="flex items-center space-x-3 mb-2">
        <div className="p-2 bg-accent/10 rounded-full">{icon}</div>
       <div>
-        <p className="text-lg font-medium text-foreground">{label}</p>
-        <p className="text-2xl font-semibold text-accent">Level {value}</p>
+        <p className="text-md md:text-lg font-medium text-foreground">{label}</p>
+        <p className="text-xl md:text-2xl font-semibold text-accent">Level {value}</p>
       </div>
     </div>
     <Progress value={(value / maxLevel) * 100} className="h-2 w-full [&>div]:bg-accent" aria-label={`${label}: Level ${value} out of ${maxLevel}`} />
      <p className="text-xs text-muted-foreground text-right mt-1">Next Lvl: {value < maxLevel ? value + 1 : "MAX"}</p>
   </div>
 );
+
