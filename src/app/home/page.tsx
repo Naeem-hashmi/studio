@@ -10,7 +10,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUser } from "@/hooks/useUser";
 import { Swords, Users, Bot, AlertTriangle, Loader2, GraduationCap, Eye, RefreshCw, ArrowUpCircle, Shield, Axe, UserPlus, HelpCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { performStatUpgrade, MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS } from "@/lib/firestoreActions";
+import { performStatUpgrade } from "@/lib/firestoreActions";
+import { MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS } from "@/lib/gameConfig";
+
 
 const PROFILE_NOT_FOUND_ERROR_SUBSTRING = "Your game profile could not be loaded";
 
@@ -40,7 +42,6 @@ export default function HomePage() {
       toast({
         title: "Upgrade Successful!",
         description: `${statType === 'attack' ? 'Attack' : 'Defense'} level increased. Your resources have been updated.`,
-        variant: "default", // Explicitly set for success, though default is usually fine
       });
       await refreshUserProfile(); 
     } catch (error: any) {
@@ -364,4 +365,3 @@ function GameModeCard({ title, description, icon, link, actionText, disabled, ar
     </Card>
   );
 }
-

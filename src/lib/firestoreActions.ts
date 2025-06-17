@@ -4,21 +4,9 @@ import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, Timest
 import { db } from "@/lib/firebase";
 import type { GameUser } from "@/types";
 import type { User as FirebaseUserType } from "firebase/auth";
+import { MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS } from "./gameConfig";
 
 const USER_COLLECTION = "users";
-export const MAX_LEVEL = 3; // Exporting for use in home page display if needed
-
-// Updated costs
-export const ATTACK_UPGRADE_COSTS: Record<number, { gold: number; military: number; resources: number }> = {
-  2: { gold: 2000, military: 5000, resources: 4000 }, // Cost to upgrade from level 1 to 2
-  3: { gold: 5000, military: 10000, resources: 8000 }, // Cost to upgrade from level 2 to 3
-};
-
-export const DEFENSE_UPGRADE_COSTS: Record<number, { gold: number; military: number; resources: number }> = {
-  2: { gold: 2000, military: 5000, resources: 4000 }, 
-  3: { gold: 5000, military: 10000, resources: 8000 },
-};
-
 
 const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
   console.log(`firestoreActions: buildGameUserFromData for ${userId}, raw input data:`, JSON.parse(JSON.stringify(data)));
@@ -41,8 +29,8 @@ const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
                         typeof data.recoveryProgress.successfulDefenses === 'number')
                       ? { successfulAttacks: data.recoveryProgress.successfulAttacks, successfulDefenses: data.recoveryProgress.successfulDefenses }
                       : { successfulAttacks: 0, successfulDefenses: 0 },
-    rank: data.rank !== undefined ? data.rank : null, // Default to null if undefined
-    xp: typeof data.xp === 'number' ? data.xp : 0,    // Default to 0 if undefined or not a number
+    rank: data.rank !== undefined ? data.rank : null, // Default to null if not provided
+    xp: typeof data.xp === 'number' ? data.xp : 0, // Default to 0 if not provided
   };
   console.log(`firestoreActions: Constructed GameUser for ${userId}:`, profile);
   return profile;
@@ -75,14 +63,14 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
 
   try {
     const existingProfileSnap = await getDoc(userProfileRef);
-    let dataToSet: GameUser | Partial<GameUser>;
+    let finalDataForFirestore: { [key: string]: any };
     let operationType: 'create' | 'update-auth' = 'create';
 
     if (existingProfileSnap.exists()) {
       console.log(`firestoreActions: Profile already exists for ${firebaseUser.uid}. Ensuring auth fields are current.`);
       operationType = 'update-auth';
-      const currentData = buildGameUserFromData(firebaseUser.uid, existingProfileSnap.data());
-      const updates: Partial<GameUser> = {};
+      const currentData = buildGameUserFromData(firebaseUser.uid, existingProfileSnap.data()); // Build from existing data
+      const updates: { [key: string]: any | FieldValue } = {updatedAt: serverTimestamp()}; // Always update timestamp
       let changed = false;
 
       if (firebaseUser.displayName && firebaseUser.displayName !== currentData.displayName) {
@@ -100,46 +88,36 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
       
       if (changed) {
         console.log(`firestoreActions: Auth fields changed for existing profile ${firebaseUser.uid}. Applying updates:`, updates);
-        dataToSet = updates;
+        finalDataForFirestore = updates;
       } else {
-        console.log(`firestoreActions: No auth-related field changes needed for existing profile ${firebaseUser.uid}. No data write, only timestamp update if forced.`);
-         // To ensure updatedAt is modified, we'll fetch and return.
-         // No explicit data write needed if only timestamps are the concern,
-         // but we need to return the existing profile.
-         // The re-fetch below will handle returning the latest data.
-         // Forcing an update just for timestamp might be too much if nothing else changed.
-         // We'll rely on the final getDoc to return the current state.
-         // If we MUST update timestamp, we'd do: await updateDoc(userProfileRef, { updatedAt: serverTimestamp() });
-         const finalProfileSnap = await getDoc(userProfileRef);
-         if (!finalProfileSnap.exists()) {
-            console.error(`firestoreActions: CRITICAL - Profile for ${firebaseUser.uid} NOT FOUND after an intended no-op for auth fields.`);
-            throw new Error("Profile could not be retrieved after checking existing profile.");
-         }
-         return buildGameUserFromData(firebaseUser.uid, finalProfileSnap.data());
+        console.log(`firestoreActions: No auth-related field changes needed for existing profile ${firebaseUser.uid}. Updating timestamp only.`);
+        finalDataForFirestore = { updatedAt: serverTimestamp() };
       }
+       await updateDoc(userProfileRef, finalDataForFirestore);
     } else {
       console.log(`firestoreActions: Profile does not exist for ${firebaseUser.uid}. Creating new profile with defaults.`);
-      dataToSet = buildGameUserFromData(firebaseUser.uid, {
+      const newProfileData = buildGameUserFromData(firebaseUser.uid, { // Pass firebaseUser info to populate
         email: firebaseUser.email || null,
         displayName: firebaseUser.displayName || "Anonymous Warlord",
         photoURL: firebaseUser.photoURL || null,
-        // buildGameUserFromData will apply other game defaults (gold, levels, etc.)
+        // buildGameUserFromData will apply game-specific defaults like gold, military, etc.
       });
+      finalDataForFirestore = { 
+        ...newProfileData, 
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      // Ensure no undefined values are being sent
+      Object.keys(finalDataForFirestore).forEach(key => {
+        if (finalDataForFirestore[key] === undefined) {
+          console.warn(`firestoreActions: Removing undefined key '${key}' before writing to Firestore.`);
+          delete finalDataForFirestore[key]; // Or set to null: finalDataForFirestore[key] = null;
+        }
+      });
+      console.log(`firestoreActions: Data to be set for new profile ${firebaseUser.uid}:`, finalDataForFirestore);
+      await setDoc(userProfileRef, finalDataForFirestore);
     }
     
-    // Prepare data for Firestore, ensuring server timestamps are used
-    const finalDataForFirestore: { [key: string]: any } = { ...dataToSet };
-    if (operationType === 'create') {
-        finalDataForFirestore.createdAt = serverTimestamp();
-    }
-    finalDataForFirestore.updatedAt = serverTimestamp();
-
-    console.log(`firestoreActions: Data to be written for profile ${firebaseUser.uid} (operation: ${operationType}):`, finalDataForFirestore);
-    if (operationType === 'create') {
-        await setDoc(userProfileRef, finalDataForFirestore);
-    } else { // 'update-auth' and dataToSet contains changes
-        await updateDoc(userProfileRef, finalDataForFirestore);
-    }
     console.log(`firestoreActions: Successfully wrote profile data for ${firebaseUser.uid}.`);
     
     console.log(`firestoreActions: Re-fetching profile for ${firebaseUser.uid} after write operation.`);
@@ -156,8 +134,8 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
     console.error(`firestoreActions: Error in createUserProfile for ${firebaseUser.uid}:`, error);
     console.error(`firestoreActions: Error stack:`, error.stack); 
     if (error.code === 'invalid-argument' && error.message.includes('Unsupported field value: undefined')) {
-        console.error("firestoreActions: Attempted to write 'undefined' to Firestore. This is often due to missing defaults in buildGameUserFromData. Ensure 'rank' and 'xp' have null/0 defaults if not provided.");
-        throw new Error(`Profile creation failed: Invalid data. Please ensure all fields have valid default values (use null instead of undefined for optional fields like rank, or 0 for xp). Original error: ${error.message}`);
+        console.error("firestoreActions: Attempted to write 'undefined' to Firestore. Check buildGameUserFromData defaults.");
+        throw new Error(`Profile creation failed: Invalid data. Original error: ${error.message}`);
     }
     throw new Error(`Failed to create or update user profile for ${firebaseUser.uid}: ${error.message || 'Unknown server error during profile operation.'}`);
   }
@@ -167,11 +145,8 @@ export async function updateUserProfile(userId: string, data: Partial<GameUser>)
   console.log(`firestoreActions: Updating profile for ${userId} with data:`, data);
   try {
     const userDocRef = doc(db, USER_COLLECTION, userId);
-    // Ensure serverTimestamp is of type FieldValue for updates
     const updateData: { [key: string]: any | FieldValue } = { ...data, updatedAt: serverTimestamp() };
 
-    // Remove any 'undefined' fields from the update data, as Firestore doesn't support them.
-    // Null is acceptable for clearing a field.
     Object.keys(updateData).forEach(key => {
       if (updateData[key] === undefined) {
         delete updateData[key];
@@ -194,7 +169,7 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
   const userDocRef = doc(db, USER_COLLECTION, userId);
 
   try {
-    const updatedProfile = await runTransaction(db, async (transaction) => {
+    await runTransaction(db, async (transaction) => {
       const userSnap = await transaction.get(userDocRef);
       if (!userSnap.exists()) {
         throw new Error("User profile not found. Cannot perform upgrade.");
@@ -241,10 +216,6 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
       }
       
       transaction.update(userDocRef, updates);
-      
-      // The transaction function should return the value that the runTransaction call will resolve to.
-      // We'll re-fetch outside the transaction to get server-resolved timestamps.
-      return; // Indicate success to proceed to re-fetch.
     });
     
     console.log(`firestoreActions: Successfully upgraded ${statType} for user ${userId}. Re-fetching for latest data.`);
@@ -256,7 +227,6 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
 
   } catch (error: any) {
     console.error(`firestoreActions: Error upgrading ${statType} for user ${userId}:`, error);
-    // Rethrow specific, user-friendly messages if possible
     if (error.message === "User profile not found. Cannot perform upgrade." ||
         error.message.startsWith("Already at max") ||
         error.message.startsWith("No upgrade cost defined") ||
@@ -266,4 +236,3 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
     throw new Error(`Failed to upgrade ${statType}. Please try again.`);
   }
 }
-

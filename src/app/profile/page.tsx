@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { ShieldCheck, Sword, DollarSign, Package, TrendingUp, TrendingDown, BarChart3, Loader2, AlertTriangle, RefreshCw, UserCircle, Shield, Pencil } from "lucide-react";
+import { ShieldCheck, Sword, DollarSign, Package, TrendingUp, TrendingDown, BarChart3, Loader2, AlertTriangle, RefreshCw, UserCircle, Shield as ShieldIcon, Pencil } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,6 +25,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { updateUserProfile } from "@/lib/firestoreActions";
+import { MAX_LEVEL } from "@/lib/gameConfig";
 
 
 export default function ProfilePage() {
@@ -193,8 +194,8 @@ export default function ProfilePage() {
         </CardHeader>
         
         <CardContent className="p-4 md:p-6 space-y-6">
-          <section>
-            <h3 className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
+          <section aria-labelledby="battle-stats-heading">
+            <h3 id="battle-stats-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
               <BarChart3 className="mr-2 h-5 w-5" />
               Battle Statistics
             </h3>
@@ -213,8 +214,8 @@ export default function ProfilePage() {
 
           <Separator />
 
-          <section>
-            <h3 className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
+          <section aria-labelledby="current-resources-heading">
+            <h3 id="current-resources-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
               <Package className="mr-2 h-5 w-5" />
               Current Resources
             </h3>
@@ -227,22 +228,22 @@ export default function ProfilePage() {
           
           <Separator />
 
-          <section>
-            <h3 className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
+          <section aria-labelledby="arsenal-levels-heading">
+            <h3 id="arsenal-levels-heading" className="text-lg md:text-xl font-semibold text-primary mb-3 flex items-center">
               <Sword className="mr-2 h-5 w-5" />
               Arsenal Levels
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
-              <LevelCard icon={<Sword className="text-orange-500" />} label="Attack Level" value={gameUser.attackLevel} maxLevel={3} />
-              <LevelCard icon={<Shield className="text-teal-500" />} label="Defense Level" value={gameUser.defenseLevel} maxLevel={3} />
+              <LevelCard icon={<Sword className="text-orange-500" />} label="Attack Level" value={gameUser.attackLevel} maxLevel={MAX_LEVEL} />
+              <LevelCard icon={<ShieldIcon className="text-teal-500" />} label="Defense Level" value={gameUser.defenseLevel} maxLevel={MAX_LEVEL} />
             </div>
           </section>
 
           {gameUser.inRecoveryMode && (
             <>
             <Separator/>
-            <section>
-                <h3 className="text-lg md:text-xl font-semibold text-destructive mb-3 flex items-center">
+            <section aria-labelledby="recovery-progress-heading">
+                <h3 id="recovery-progress-heading" className="text-lg md:text-xl font-semibold text-destructive mb-3 flex items-center">
                 <AlertTriangle className="mr-2 h-5 w-5" />
                 Recovery Progress
                 </h3>
@@ -309,7 +310,7 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
   <div 
     className="bg-card p-3 rounded-lg shadow-md border border-border hover:border-primary/50 transition-colors"
     role="figure"
-    aria-label={`${label}: Level ${value}${value < maxLevel ? `, Next Level Cost available on Home Screen` : '. Maximum Level Reached.'}`}
+    aria-label={`${label}: Level ${value}${value < maxLevel ? `. Progress to level ${value + 1}. Upgrade costs available on Home screen.` : '. Maximum Level Reached.'}`}
   >
     <div className="flex items-center space-x-2.5 mb-1.5" aria-hidden="true">
        <div className="p-1.5 bg-accent/10 rounded-full">
@@ -330,4 +331,3 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
      </p>
   </div>
 );
-
