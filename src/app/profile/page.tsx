@@ -1,5 +1,7 @@
+
 "use client";
 
+import * as React from "react"; // Import React
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,8 +10,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { ShieldCheck, Sword, DollarSign, Package, TrendingUp, TrendingDown, BarChart3, Loader2, AlertTriangle, RefreshCw, UserCircle } from "lucide-react";
+import { ShieldCheck, Sword, DollarSign, Package, TrendingUp, TrendingDown, BarChart3, Loader2, AlertTriangle, RefreshCw, UserCircle, Shield } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { Label } from "@/components/ui/label"; // Import Label from shadcn/ui
 
 export default function ProfilePage() {
   const { user: firebaseUser, loading: authLoading } = useAuth();
@@ -108,9 +111,9 @@ export default function ProfilePage() {
               Current Resources
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <ResourceCard icon={<DollarSign className="text-yellow-500" />} label="Gold" value={gameUser.gold} maxValue={100} />
-              <ResourceCard icon={<ShieldCheck className="text-red-500" />} label="Military" value={gameUser.military} maxValue={100} />
-              <ResourceCard icon={<Package className="text-green-500" />} label="Supplies" value={gameUser.resources} maxValue={100} />
+              <ResourceCard icon={<DollarSign className="text-yellow-500" />} label="Gold" value={gameUser.gold} maxValue={1000} /> 
+              <ResourceCard icon={<ShieldCheck className="text-red-500" />} label="Military" value={gameUser.military} maxValue={500} />
+              <ResourceCard icon={<Package className="text-green-500" />} label="Supplies" value={gameUser.resources} maxValue={500} />
             </div>
           </section>
           
@@ -125,7 +128,6 @@ export default function ProfilePage() {
               <LevelCard icon={<Sword className="text-orange-500" />} label="Attack Level" value={gameUser.attackLevel} maxLevel={3} />
               <LevelCard icon={<Shield className="text-teal-500" />} label="Defense Level" value={gameUser.defenseLevel} maxLevel={3} />
             </div>
-            {/* Add upgrade buttons here when functionality is ready */}
              <div className="mt-6 text-center">
                 <Button variant="outline" disabled className="bg-primary/10 hover:bg-primary/20">
                     Upgrade Arsenal (Coming Soon)
@@ -202,16 +204,4 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
   </div>
 );
 
-// Dummy Label component if not imported from shadcn/ui or similar
-const Label = React.forwardRef<
-  HTMLLabelElement,
-  React.LabelHTMLAttributes<HTMLLabelElement>
->(({ className, ...props }, ref) => (
-  <label
-    ref={ref}
-    className={`block text-sm font-medium text-gray-700 ${className}`}
-    {...props}
-  />
-));
-Label.displayName = "Label";
-
+// Removed the custom Label component, as it's now imported from shadcn/ui
