@@ -8,8 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { useUser } from "@/hooks/useUser";
-import { Swords, Users, Bot, AlertTriangle, Loader2, GraduationCap, Eye } from "lucide-react";
-// Removed Shield from lucide-react imports as it's used in setup-profile page
+import { Swords, Users, Bot, AlertTriangle, Loader2, GraduationCap, Eye, RefreshCw } from "lucide-react";
 
 export default function HomePage() {
   const { user: firebaseUser, loading: authLoading } = useAuth();
@@ -17,14 +16,11 @@ export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    // If auth is not loading and there's no firebaseUser, redirect to login.
-    // This handles cases where user logs out or session expires.
     if (!authLoading && !firebaseUser) {
       router.replace("/login");
     }
   }, [firebaseUser, authLoading, router]);
 
-  // Handles initial Firebase Auth loading
   if (authLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
@@ -34,19 +30,16 @@ export default function HomePage() {
     );
   }
 
-  // If auth is resolved, but no firebaseUser (e.g., after logout or if directly navigating here unauthenticated)
-  // The useEffect above should catch this, but this is a fallback.
-  if (!firebaseUser) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
-        <p className="text-lg text-foreground">Redirecting to login...</p>
-      </div>
-    );
+  if (!firebaseUser && !authLoading) { // Should be caught by useEffect, but as a safeguard
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
+          <p className="text-lg text-foreground">Redirecting to login...</p>
+        </div>
+      );
   }
   
-  // At this point, firebaseUser is confirmed. Now check gameUser states from useUser.
-  // userCombinedLoading reflects both auth state and profile fetching state.
-  if (userCombinedLoading) {
+  // Firebase user exists, now check gameUser states from useUser.
+  if (userCombinedLoading) { // This covers both auth and profile fetching
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center">
         <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -59,26 +52,33 @@ export default function HomePage() {
      return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-8">
         <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
-        <h2 className="text-2xl font-semibold text-destructive mb-2">Error Accessing Profile</h2>
-        <p className="text-muted-foreground mb-4">{userError}</p>
-        <Button onClick={() => refreshUserProfile()} className="mr-2">Try Again</Button>
-        <Button variant="outline" onClick={() => router.push("/setup-profile")}>Re-Setup Profile</Button>
+        <h2 className="text-2xl font-semibold text-destructive mb-2">Error Loading Profile</h2>
+        <p className="text-muted-foreground mb-6 text-sm max-w-md">{userError}</p>
+        <div className="flex gap-3">
+            <Button onClick={() => refreshUserProfile()}>
+                <RefreshCw className="mr-2 h-4 w-4" /> Try Again
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/setup-profile")}>
+                Go to Profile Setup
+            </Button>
+        </div>
       </div>
     );
   }
-
-  // Fallback: If firebaseUser exists, not loading, no error, but gameUser is still null.
-  // This indicates profile fetch completed but found no profile, or user somehow skipped setup.
+  
   if (!gameUser) {
+    // This state should ideally be less common with the new login/setup flow.
+    // It means auth is done, profile fetching is done (no error from useUser), but gameUser is still null.
     return (
        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-6">
         <AlertTriangle className="h-12 w-12 text-amber-500 mb-4" />
-        <p className="text-lg text-foreground mb-3">Your game profile isn't fully set up or couldn't be loaded.</p>
-        <p className="text-sm text-muted-foreground mb-4">This can sometimes happen for new accounts.</p>
-        <div className="flex gap-2">
+        <p className="text-lg text-foreground mb-3">Your game profile is not available.</p>
+        <p className="text-sm text-muted-foreground mb-4 max-w-md">
+            This can happen if profile setup was not completed. Please try setting up your profile or refresh.
+        </p>
+        <div className="flex gap-3">
             <Button onClick={refreshUserProfile}>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Retry Loading Profile
+                <RefreshCw className="mr-2 h-4 w-4" /> Refresh Profile
             </Button>
              <Button variant="outline" onClick={() => router.push("/setup-profile")}>
                 Go to Profile Setup
@@ -88,7 +88,6 @@ export default function HomePage() {
     );
   }
   
-  // If we reach here, gameUser is successfully loaded.
   const isInRecovery = gameUser.inRecoveryMode;
 
   return (

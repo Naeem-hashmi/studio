@@ -8,7 +8,7 @@ import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-// createUserProfile is no longer called here
+import { getUserProfile } from "@/lib/firestoreActions"; // Import getUserProfile
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import Image from "next/image";
@@ -29,60 +29,78 @@ export default function LoginPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
-  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [isProcessingLogin, setIsProcessingLogin] = useState(false); // Combined loading state for sign-in and profile check
 
   useEffect(() => {
     // If user is already authenticated (e.g. session persisted),
-    // they might need to go to setup or home.
-    // For simplicity, if they have a user object, assume they should be past login.
-    // The /setup-profile or /home page will handle their actual profile state.
-    if (!authLoading && user) {
-      router.replace("/home"); // Or check if they need to go to /setup-profile
+    // and not currently processing a new login attempt,
+    // redirect them to home. The home page will handle profile state.
+    if (!authLoading && user && !isProcessingLogin) {
+      router.replace("/home");
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, isProcessingLogin]);
 
   const handleGoogleSignIn = async () => {
-    setIsSigningIn(true);
+    setIsProcessingLogin(true);
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(auth, provider);
-      // Instead of creating profile here, redirect to a setup page
       toast({
-        title: "Login Successful",
-        description: `Welcome, ${result.user.displayName || "Commander"}! Let's set up your profile.`,
+        title: "Google Sign-In Successful",
+        description: `Welcome, ${result.user.displayName || "Commander"}! Checking your profile...`,
       });
-      router.push("/setup-profile"); 
+
+      // Check if profile exists
+      const existingProfile = await getUserProfile(result.user.uid);
+
+      if (existingProfile) {
+        toast({
+          title: "Profile Found!",
+          description: "Redirecting to your command center...",
+        });
+        router.push("/home");
+      } else {
+        toast({
+          title: "New Commander Detected!",
+          description: "Let's set up your game profile.",
+        });
+        router.push("/setup-profile");
+      }
     } catch (error: any) {
-      console.error("Google Sign-In Error:", error);
+      console.error("Login Page Error (Google Sign-In or Profile Check):", error);
       toast({
         variant: "destructive",
-        title: "Login Failed",
-        description: error.message || "Could not sign in with Google. Please try again.",
+        title: "Login Process Failed",
+        description: error.message || "Could not complete the login process. Please try again.",
       });
     } finally {
-      setIsSigningIn(false);
+      setIsProcessingLogin(false);
     }
   };
 
-  if (authLoading || (!authLoading && user)) { 
-    // If auth is loading OR user is already authed (and useEffect is redirecting), show loader.
+  // If auth is loading, or user is already authed (and useEffect is redirecting),
+  // or if we are in the middle of processing login, show loader.
+  if (authLoading || (!authLoading && user && !isProcessingLogin) || isProcessingLogin) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-background to-secondary">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-secondary">
+        <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+        <p className="text-lg text-foreground">
+          {isProcessingLogin ? "Processing login..." : "Loading authentication..."}
+        </p>
       </div>
     );
   }
 
-  // Only render login form if not loading and no user (meaning they need to log in)
+  // Only render login form if not loading, no user, and not processing login.
   return (
     <div className="flex items-center justify-center min-h-screen p-4 bg-gradient-to-br from-background to-secondary/30">
       <Card className="w-full max-w-md shadow-2xl border-primary/30">
         <CardHeader className="text-center">
-          <Image 
-            src="https://placehold.co/150x75.png" 
-            alt="Tactical Echo Logo" 
-            width={150} 
-            height={75} 
+          <Image
+            src="https://placehold.co/150x75.png"
+            alt="Tactical Echo Logo"
+            width={150}
+            height={75}
             className="mx-auto mb-4 rounded-md"
             data-ai-hint="game logo military"
           />
@@ -94,16 +112,16 @@ export default function LoginPage() {
         <CardContent className="space-y-6">
           <Button
             onClick={handleGoogleSignIn}
-            disabled={isSigningIn}
+            disabled={isProcessingLogin}
             className="w-full text-lg py-6 bg-white text-gray-700 hover:bg-gray-50 border border-gray-300 shadow-md hover:shadow-lg transition-all"
             aria-label="Sign in with Google"
           >
-            {isSigningIn ? (
+            {isProcessingLogin ? (
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             ) : (
               <GoogleIcon />
             )}
-            {isSigningIn ? "Signing In..." : "Sign in with Google"}
+            {isProcessingLogin ? "Processing..." : "Sign in with Google"}
           </Button>
            <p className="text-xs text-muted-foreground text-center px-4">
             By signing in, you agree to our imaginary Terms of Service and Privacy Policy. Your strategic genius is safe with us.
