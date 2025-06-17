@@ -4,9 +4,9 @@
 import { useState, useEffect, useCallback } from "react";
 import type { GameUser } from "@/types";
 import { useAuth } from "./useAuth";
-import { getUserProfile } from "@/lib/firestoreActions"; 
+import { getUserProfile } from "@/lib/firestoreActions";
 
-const MAX_RETRIES = 2; // Total 3 attempts (initial + 2 retries)
+const MAX_RETRIES = 3; // Total attempts (initial + 2 retries)
 const RETRY_DELAY_MS = 1500;
 
 export function useUser() {
@@ -18,11 +18,11 @@ export function useUser() {
   const fetchAndSetUserProfile = useCallback(async (uid: string): Promise<void> => {
     console.log(`useUser: Starting profile fetch cycle for ${uid}`);
     setProfileFetchingLoading(true);
-    setError(null); 
-    // Do not setGameUser(null) here if we want to keep displaying old profile while new one loads on refresh
+    setError(null);
+    // Do not setGameUser(null) here initially if we want to keep displaying old profile while new one loads on refresh
     // However, for initial load after login, it should be null or reset by useEffect.
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       console.log(`useUser: Attempt ${attempt + 1} to fetch profile for ${uid}`);
       try {
         const profile = await getUserProfile(uid);
@@ -31,12 +31,12 @@ export function useUser() {
           setGameUser(profile);
           setError(null);
           setProfileFetchingLoading(false);
-          return; 
+          return;
         }
         console.log(`useUser: Profile not found on attempt ${attempt + 1} for ${uid}.`);
-        if (attempt < MAX_RETRIES) {
-          console.log(`useUser: Scheduling retry ${attempt + 1} after ${RETRY_DELAY_MS * (attempt + 1)}ms.`);
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1) ));
+        if (attempt < MAX_RETRIES - 1) {
+          console.log(`useUser: Scheduling retry ${attempt + 1} after ${RETRY_DELAY_MS}ms.`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
         }
       } catch (e: unknown) {
         console.error(`useUser: Error fetching profile for ${uid} on attempt ${attempt + 1}`, e);
@@ -44,37 +44,40 @@ export function useUser() {
         setError(errorMessage);
         setGameUser(null); // Clear gameUser on error
         setProfileFetchingLoading(false);
-        return; 
+        return;
       }
     }
 
-    console.log(`useUser: Profile not found for ${uid} after ${MAX_RETRIES + 1} attempts.`);
+    console.log(`useUser: Profile not found for ${uid} after ${MAX_RETRIES} attempts.`);
     setError("Your game profile could not be loaded after multiple attempts. This might happen if you've just signed up. Please try refreshing the page. If the issue persists, contact support.");
     setGameUser(null); // Ensure gameUser is null if not found
     setProfileFetchingLoading(false);
 
-  }, []); 
+  }, []);
 
   useEffect(() => {
     console.log("useUser effect (auth state change): authLoading:", authLoading, "firebaseUser:", !!firebaseUser);
     if (authLoading) {
-      setGameUser(null);
-      setError(null);
-      setProfileFetchingLoading(false); 
+      // If auth is loading, we can't know the user yet.
+      // Resetting gameUser might be too aggressive if we want to keep showing old data while auth revalidates.
+      // For now, we'll let it be until auth resolves.
+      // setGameUser(null); 
+      // setError(null);
+      // setProfileFetchingLoading(true); // Indicate that we are waiting for auth before we can even attempt profile fetch
       return;
     }
 
     if (firebaseUser) {
-      console.log("useUser effect: User authenticated. Initiating profile fetch.");
-      // Reset gameUser and error before fetching for a potentially new firebaseUser
+      console.log("useUser effect: User authenticated. Initiating profile fetch for user:", firebaseUser.uid);
+      // Reset gameUser and error *before* fetching for a new firebaseUser or re-fetching for the same user.
       setGameUser(null);
       setError(null);
       fetchAndSetUserProfile(firebaseUser.uid);
     } else {
-      console.log("useUser effect: User logged out. Resetting all profile state.");
+      console.log("useUser effect: User logged out or no user. Resetting all profile state.");
       setGameUser(null);
       setError(null);
-      setProfileFetchingLoading(false);
+      setProfileFetchingLoading(false); // No user, so not fetching.
     }
   }, [firebaseUser, authLoading, fetchAndSetUserProfile]);
 
