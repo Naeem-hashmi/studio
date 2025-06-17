@@ -18,13 +18,13 @@ export function useUser() {
 
   const attemptFetchProfile = useCallback(async (currentAttempt: number) => {
     if (!firebaseUser) {
-      setProfileFetchingLoading(false);
+      setProfileFetchingLoading(false); // Should not happen if called correctly
       return;
     }
 
     console.log(`useUser: Attempting to fetch profile for ${firebaseUser.uid}, attempt number ${currentAttempt + 1}`);
     setProfileFetchingLoading(true);
-    // Don't clear error here, allow it to persist until success or explicit reset by refresh/new user
+    // setError(null); // Clear error only before a new cycle of attempts
 
     try {
       const profile = await getUserProfile(firebaseUser.uid);
@@ -34,20 +34,21 @@ export function useUser() {
         setGameUser(profile);
         setError(null); // Clear error on success
         setProfileFetchingLoading(false);
-        // setFetchAttempt(0); // Reset attempts on success - useEffect will handle this better on firebaseUser change
+        setFetchAttempt(0); // Reset attempts on success for this user
       } else if (currentAttempt < MAX_RETRIES) {
         console.log(`useUser: Profile not found for ${firebaseUser.uid}, scheduling retry ${currentAttempt + 1} of ${MAX_RETRIES}`);
+        // profileFetchingLoading remains true
         setTimeout(() => {
           // Trigger next attempt by advancing fetchAttempt state
-          // The useEffect listening to fetchAttempt will call this function again
+          // The useEffect listening to fetchAttempt will call this function again IF other conditions are met
           setFetchAttempt(prev => prev + 1);
-        }, RETRY_DELAY_MS * (currentAttempt + 1));
-        // profileFetchingLoading remains true
+        }, RETRY_DELAY_MS * (currentAttempt + 1)); // Basic exponential backoff feel
       } else {
         console.log(`useUser: Profile not found for ${firebaseUser.uid} after max retries.`);
         setError("Your game profile could not be loaded. This might happen if you've just signed up. Please try refreshing the page. If the issue persists, contact support.");
         setGameUser(null);
         setProfileFetchingLoading(false);
+        // fetchAttempt is already at MAX_RETRIES or more, no need to reset here unless starting a whole new cycle.
       }
     } catch (e: unknown) {
       console.error(`useUser: Error fetching profile for ${firebaseUser.uid} on attempt ${currentAttempt + 1}`, e);
@@ -59,76 +60,75 @@ export function useUser() {
       setGameUser(null);
       setProfileFetchingLoading(false);
     }
-  }, [firebaseUser]); // Depends on firebaseUser to ensure it has the correct uid
+  }, [firebaseUser]); // Added firebaseUser, as it's used directly.
 
+  // Effect for handling initial fetch and changes in authentication state
   useEffect(() => {
-    // Effect for initiating or resetting fetch logic when auth state changes
+    console.log("useUser effect (auth state change): authLoading:", authLoading, "firebaseUser:", !!firebaseUser);
     if (authLoading) {
-      // console.log("useUser effect (auth): Auth is loading. Resetting related state.");
-      // If auth is loading, we shouldn't be fetching. Reset dependent states.
+      // If auth is loading, reset everything and don't fetch
       setGameUser(null);
       setError(null);
-      setProfileFetchingLoading(false); // Not fetching profile if auth is not ready
+      setProfileFetchingLoading(false);
       setFetchAttempt(0);
       return;
     }
 
     if (firebaseUser) {
-      // console.log("useUser effect (auth): firebaseUser present. Current fetchAttempt:", fetchAttempt, "gameUser:", !!gameUser, "error:", error);
-      // If firebaseUser exists, and we haven't started fetching yet for this user (fetchAttempt is 0)
-      // or if a previous fetch for this user resulted in an error and we want to allow a manual refresh to retry.
-      // This block primarily handles the *initial* fetch or reset for a new/changed firebaseUser.
-      if (fetchAttempt === 0 && !gameUser && !error) { // Only start if no gameUser and no error from previous attempt for this user
-        console.log("useUser effect (auth): Conditions met for initial profile fetch. Calling attemptFetchProfile(0).");
-        attemptFetchProfile(0);
-      } else if (fetchAttempt === 0 && error) {
-        // User is logged in, but there was a previous error, and fetchAttempt has been reset (e.g. by refresh)
-        // This allows a refresh to clear an error and try again.
-        console.log("useUser effect (auth): Error exists but fetchAttempt is 0 (likely after refresh). Calling attemptFetchProfile(0).");
-        setError(null); // Clear the error before retrying
-        attemptFetchProfile(0);
-      }
+      // User is authenticated
+      console.log("useUser effect (auth state change): User authenticated. Resetting profile state for new fetch cycle.");
+      setGameUser(null); // Clear previous game user
+      setError(null);   // Clear previous errors
+      setFetchAttempt(0); // Reset attempts for the new user/login
+      setProfileFetchingLoading(true); // Indicate we are about to fetch
+      attemptFetchProfile(0); // Start fetching with attempt 0
     } else {
       // No firebaseUser and not authLoading (user is logged out)
-      // console.log("useUser effect (auth): No firebaseUser. Resetting all profile state.");
+      console.log("useUser effect (auth state change): User logged out. Resetting all profile state.");
       setGameUser(null);
       setError(null);
       setProfileFetchingLoading(false);
       setFetchAttempt(0);
     }
-  }, [firebaseUser, authLoading, attemptFetchProfile]); // gameUser and error removed from here as they might cause loops.
-                                                       // attemptFetchProfile is added as it's used.
+  }, [firebaseUser, authLoading, attemptFetchProfile]); // attemptFetchProfile is a dependency
 
+  // Effect for handling retries based on fetchAttempt changing
   useEffect(() => {
-    // Effect specifically for handling retries based on fetchAttempt changing
+    console.log("useUser effect (retry logic): fetchAttempt:", fetchAttempt, "firebaseUser:", !!firebaseUser, "gameUser:", !!gameUser, "error:", !!error);
     if (firebaseUser && !authLoading && fetchAttempt > 0 && fetchAttempt <= MAX_RETRIES && !gameUser && !error) {
-      console.log(`useUser effect (retry): fetchAttempt is ${fetchAttempt}. Calling attemptFetchProfile(${fetchAttempt}).`);
-      // The actual call to fetch again is triggered here, after setTimeout in attemptFetchProfile updates fetchAttempt
-      // No, this is wrong. setTimeout directly updates fetchAttempt.
-      // The call to attemptFetchProfile for retries should happen when fetchAttempt changes AFTER the initial call.
-      // The previous effect handles attempt 0. This handles > 0.
-      // Let's rethink: attemptFetchProfile itself schedules the *next* attempt by setting fetchAttempt.
-      // So this effect becomes simpler: if fetchAttempt > 0 and conditions met, call attemptFetchProfile.
-      // The setTimeout IS the delay, then it setsFetchAttempt, then THIS effect runs.
+      // This condition means:
+      // 1. We have a firebase user and auth is not loading.
+      // 2. fetchAttempt was incremented (so it's > 0), meaning a retry was scheduled.
+      // 3. We haven't exceeded max retries.
+      // 4. We still don't have a gameUser.
+      // 5. There isn't a persistent error that should stop retries.
+      console.log(`useUser effect (retry logic): Conditions met for retry attempt ${fetchAttempt}. Calling attemptFetchProfile(${fetchAttempt}).`);
       attemptFetchProfile(fetchAttempt);
+    } else if (fetchAttempt > MAX_RETRIES && !gameUser && !error) {
+      // This case handles if somehow fetchAttempt goes beyond MAX_RETRIES without profile or error being set by attemptFetchProfile.
+      // This is a safeguard. attemptFetchProfile should handle setting the error.
+      console.log("useUser effect (retry logic): Exceeded MAX_RETRIES in retry effect, but no profile/error set. Setting error.");
+      setError("Failed to load profile after multiple attempts (retry effect).");
+      setProfileFetchingLoading(false);
     }
-  }, [fetchAttempt, firebaseUser, authLoading, gameUser, error, attemptFetchProfile]);
-
+  }, [fetchAttempt, firebaseUser, authLoading, gameUser, error, attemptFetchProfile]); // attemptFetchProfile is a dependency
 
   const refreshUserProfile = useCallback(() => {
     if (firebaseUser) {
       console.log("useUser: refreshUserProfile called.");
+      // Resetting states to trigger the main useEffect for auth state change
+      // This will cause the first useEffect to run, which resets attempt and calls attemptFetchProfile(0)
       setGameUser(null);
       setError(null);
-      // setProfileFetchingLoading(true); // Set to true to indicate refresh is starting
-      setFetchAttempt(0); // This will trigger the main useEffect to re-initiate fetch with attempt 0
-                        // which in turn calls attemptFetchProfile(0) which sets profileFetchingLoading to true.
+      setFetchAttempt(0); 
+      setProfileFetchingLoading(true); // Explicitly set loading true before initiating fetch
+      attemptFetchProfile(0); // Directly call to ensure it starts
     }
-  }, [firebaseUser]);
+  }, [firebaseUser, attemptFetchProfile]); // attemptFetchProfile is a dependency
 
   const combinedLoading = authLoading || profileFetchingLoading;
 
-  // console.log("useUser return state:", { uid: firebaseUser?.uid, authLoading, profileFetchingLoading, combinedLoading, gameUserExists: !!gameUser, error, fetchAttempt });
+  console.log("useUser render state:", { uid: firebaseUser?.uid, authLoading, profileFetchingLoading, combinedLoading, gameUserExists: !!gameUser, error, fetchAttempt });
 
   return { gameUser, loading: combinedLoading, error, refreshUserProfile };
 }
