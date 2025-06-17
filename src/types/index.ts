@@ -14,8 +14,8 @@ export interface GameUser {
   defenseLevel: number;
   wins: number;
   losses: number;
-  rank?: string; // Optional, can be developed later
-  xp?: number;   // Optional
+  rank: string | null; // Changed from optional string to string | null
+  xp: number;   // Changed from optional number to number
   inRecoveryMode: boolean;
   recoveryProgress: {
     successfulAttacks: number;
@@ -84,3 +84,4 @@ export interface Room {
   players: string[]; // list of userIds
   gameId?: string; // Associated gameId when match starts
 }
+

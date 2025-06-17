@@ -29,8 +29,8 @@ const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
                         typeof data.recoveryProgress.successfulDefenses === 'number')
                       ? { successfulAttacks: data.recoveryProgress.successfulAttacks, successfulDefenses: data.recoveryProgress.successfulDefenses }
                       : { successfulAttacks: 0, successfulDefenses: 0 },
-    rank: data.rank !== undefined ? data.rank : null, // Changed: undefined -> null
-    xp: data.xp !== undefined ? data.xp : null,       // Changed: undefined -> null
+    rank: data.rank !== undefined ? data.rank : null, // Default to null
+    xp: typeof data.xp === 'number' ? data.xp : 0,       // Default to 0
     // Firestore Timestamps (createdAt, updatedAt) are handled during set/update, not in this builder directly from raw data.
     // If reading from Firestore, they'd be Firestore Timestamp objects. This builder is for constructing the GameUser type.
   };
@@ -86,8 +86,10 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
         updates.email = firebaseUser.email;
         changed = true;
       }
-      if (firebaseUser.photoURL !== (currentData.photoURL === undefined ? null : currentData.photoURL)) { 
-         updates.photoURL = firebaseUser.photoURL; 
+       // Ensure photoURL comparison handles null correctly
+      const currentPhotoURL = currentData.photoURL === undefined ? null : currentData.photoURL;
+      if (firebaseUser.photoURL !== currentPhotoURL) { 
+         updates.photoURL = firebaseUser.photoURL || null; // Ensure null if firebaseUser.photoURL is undefined/null
          changed = true;
       }
 
@@ -97,10 +99,9 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
          console.log(`firestoreActions: Successfully updated existing profile for ${firebaseUser.uid}.`);
       } else {
         console.log(`firestoreActions: No auth-related field changes needed for existing profile ${firebaseUser.uid}. Updating timestamp only if no other changes.`);
-        if (Object.keys(updates).length === 1 && 'updatedAt' in updates) {
-            await updateDoc(userProfileRef, updates); 
-            console.log(`firestoreActions: Refreshed 'updatedAt' for existing profile ${firebaseUser.uid}.`);
-        }
+         // Always update timestamp even if no other fields changed, to reflect activity.
+        await updateDoc(userProfileRef, { updatedAt: serverTimestamp() }); 
+        console.log(`firestoreActions: Refreshed 'updatedAt' for existing profile ${firebaseUser.uid}.`);
       }
     } else {
       console.log(`firestoreActions: Profile does not exist for ${firebaseUser.uid}. Creating new profile with defaults.`);
@@ -109,11 +110,11 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
         email: firebaseUser.email || null,
         displayName: firebaseUser.displayName || "Anonymous Warlord",
         photoURL: firebaseUser.photoURL || null,
-        // Other fields (gold, military, etc.) will get defaults from buildGameUserFromData
+        // rank and xp defaults are handled by buildGameUserFromData
       });
       
       const dataToSet = {
-        ...initialGameUser, // This now correctly has null for rank/xp if not set
+        ...initialGameUser, 
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
@@ -148,7 +149,7 @@ export async function updateUserProfile(userId: string, data: Partial<GameUser>)
     // Ensure no undefined values are passed for update
     for (const key in updateData) {
         if (updateData[key] === undefined) {
-            delete updateData[key]; // Or set to null if appropriate for your schema
+            delete updateData[key]; 
         }
     }
     
