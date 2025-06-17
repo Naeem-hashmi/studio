@@ -344,7 +344,7 @@ function GameModeCard({ title, description, icon, link, actionText, disabled, ar
   return (
     <Card className={`hover:shadow-xl transition-shadow duration-300 ${disabled ? 'opacity-60 bg-muted/50' : 'bg-card'}`}>
       <CardHeader className="items-center text-center pt-4 sm:pt-6">
-        {icon}
+        {React.cloneElement(icon as React.ReactElement, { "aria-hidden": "true" })}
         <CardTitle className="mt-3 text-xl sm:text-2xl">{title}</CardTitle>
       </CardHeader>
       <CardContent className="text-center pb-4 sm:pb-6">
@@ -365,3 +365,4 @@ function GameModeCard({ title, description, icon, link, actionText, disabled, ar
     </Card>
   );
 }
+

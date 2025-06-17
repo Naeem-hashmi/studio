@@ -251,11 +251,11 @@ export default function ProfilePage() {
                 </h3>
                 <div className="space-y-2.5">
                     <div>
-                        <p className="text-xs font-medium text-muted-foreground">Successful Attacks: {gameUser.recoveryProgress.successfulAttacks} / 10</p>
+                        <p className="text-xs font-medium text-muted-foreground" aria-hidden="true">Successful Attacks: {gameUser.recoveryProgress.successfulAttacks} / 10</p>
                         <Progress value={(gameUser.recoveryProgress.successfulAttacks / 10) * 100} className="h-2 mt-1" aria-label={`Successful attacks progress: ${gameUser.recoveryProgress.successfulAttacks} out of 10`} />
                     </div>
                     <div>
-                        <p className="text-xs font-medium text-muted-foreground">Successful Defenses: {gameUser.recoveryProgress.successfulDefenses} / 10</p>
+                        <p className="text-xs font-medium text-muted-foreground" aria-hidden="true">Successful Defenses: {gameUser.recoveryProgress.successfulDefenses} / 10</p>
                         <Progress value={(gameUser.recoveryProgress.successfulDefenses / 10) * 100} className="h-2 mt-1" aria-label={`Successful defenses progress: ${gameUser.recoveryProgress.successfulDefenses} out of 10`} />
                     </div>
                 </div>
@@ -280,8 +280,8 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => (
       className: ((icon as React.ReactElement).props.className || "") + " h-6 w-6 mb-1", 
       "aria-hidden": "true" 
     })}
-    <p className="text-sm text-muted-foreground">{label}</p>
-    <p className="text-lg md:text-xl font-semibold text-foreground">{value}</p>
+    <p className="text-sm text-muted-foreground" aria-hidden="true">{label}</p>
+    <p className="text-lg md:text-xl font-semibold text-foreground" aria-hidden="true">{value}</p>
   </div>
 );
 
@@ -300,8 +300,8 @@ const ResourceItem: React.FC<ResourceItemProps> = ({ icon, label, value }) => (
       className: ((icon as React.ReactElement).props.className || "") + " h-5 w-5 sm:h-6 sm:w-6", 
       "aria-hidden": "true" 
     })}
-    <p className="text-base sm:text-lg font-bold text-primary">{value}</p>
-    <p className="text-xs text-muted-foreground">{label}</p>
+    <p className="text-base sm:text-lg font-bold text-primary" aria-hidden="true">{value}</p>
+    <p className="text-xs text-muted-foreground" aria-hidden="true">{label}</p>
   </div>
 );
 
@@ -310,7 +310,7 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
   <div
     className="bg-background p-3 rounded-lg shadow-sm border border-border hover:border-primary/50 transition-colors"
     role="group"
-    aria-label={`${label}: Level ${value} out of ${maxLevel}.${value < maxLevel ? ` Progress to level ${value + 1}. Upgrade costs available on Home screen.` : ' Maximum Level Reached.'}`}
+    aria-label={`${label}: Level ${value} out of ${maxLevel}.${value < maxLevel ? ` Upgrade costs available on Home screen.` : ' Maximum Level Reached.'}`}
   >
     <div className="flex items-center space-x-2.5 mb-1.5">
        <div className="p-1.5 bg-accent/10 rounded-full" aria-hidden="true">
@@ -320,8 +320,8 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
          })}
        </div>
       <div>
-        <p className="text-sm md:text-base font-medium text-foreground">{label}</p>
-        <p className="text-lg md:text-xl font-semibold text-accent">Level {value}</p>
+        <p className="text-sm md:text-base font-medium text-foreground" aria-hidden="true">{label}</p>
+        <p className="text-lg md:text-xl font-semibold text-accent" aria-hidden="true">Level {value}</p>
       </div>
     </div>
     <Progress
@@ -329,7 +329,7 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
         className="h-1.5 w-full [&>div]:bg-accent"
         aria-label={`Level ${value} of ${maxLevel} progress bar`}
     />
-     <p className="text-xs text-muted-foreground text-right mt-0.5">
+     <p className="text-xs text-muted-foreground text-right mt-0.5" aria-hidden="true">
        {value < maxLevel ? `Lvl ${value} / ${maxLevel}` : "MAX Level"}
      </p>
   </div>
