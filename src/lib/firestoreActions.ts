@@ -140,7 +140,7 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
 
       const gameUser = buildGameUserFromData(userId, userSnap.data());
       let currentLevel: number;
-      let costsForNextLevel: { gold: number; resources: number; military?: number } | undefined;
+      let costsForNextLevel: { gold: number; resources: number } | undefined;
 
       if (statType === 'attack') {
         currentLevel = gameUser.attackLevel;
@@ -155,14 +155,10 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
       if (gameUser.gold < costsForNextLevel.gold || gameUser.resources < costsForNextLevel.resources) {
         throw new Error("Insufficient Gold or Resources for upgrade.");
       }
-      if (costsForNextLevel.military && gameUser.military < costsForNextLevel.military) {
-        throw new Error("Insufficient Military for upgrade.");
-      }
-
+      
       const updates: { [key: string]: any | FieldValue } = {
         gold: gameUser.gold - costsForNextLevel.gold,
         resources: gameUser.resources - costsForNextLevel.resources,
-        ...(costsForNextLevel.military && { military: gameUser.military - costsForNextLevel.military }),
         [statType === 'attack' ? 'attackLevel' : 'defenseLevel']: currentLevel + 1,
         updatedAt: serverTimestamp(),
       };
@@ -179,8 +175,7 @@ export async function performStatUpgrade(userId: string, statType: 'attack' | 'd
     if (error.message.startsWith("User profile not found") ||
         error.message.startsWith("Already at max") ||
         error.message.startsWith("No upgrade cost defined") ||
-        error.message.startsWith("Insufficient Gold or Resources") ||
-        error.message.startsWith("Insufficient Military")) {
+        error.message.startsWith("Insufficient Gold or Resources")) {
         throw error;
     }
     throw new Error(`Failed to upgrade ${statType}. Please try again.`);
@@ -205,7 +200,7 @@ export async function createRoom(
       status: "WAITING",
       playerIds: [userId], 
       playerDisplayNames: {[userId]: hostDisplayName || "Anonymous Host"},
-      gameId: null, // Game not created yet
+      gameId: null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -217,9 +212,9 @@ export async function createRoom(
   }
 }
 
-// Internal function to create game state, not exported directly for client use
+// Internal function to create game state
 async function createGameFromRoomTransaction(
-  transaction: any, // Firestore transaction object
+  transaction: any,
   roomId: string,
   roomData: Room,
   player1Profile: GameUser,
@@ -233,7 +228,7 @@ async function createGameFromRoomTransaction(
     displayName: player1Profile.displayName,
     initialAttackLevel: player1Profile.attackLevel,
     initialDefenseLevel: player1Profile.defenseLevel,
-    gold: player1Profile.gold, // Snapshot initial resources
+    gold: player1Profile.gold,
     military: player1Profile.military,
     resources: player1Profile.resources,
     hasSubmittedAction: false,
@@ -258,7 +253,7 @@ async function createGameFromRoomTransaction(
       [player2Profile.uid]: player2GameState,
     },
     playerIds: [player1Profile.uid, player2Profile.uid],
-    status: "CHOOSING_ACTIONS", // Game starts, players choose actions
+    status: "CHOOSING_ACTIONS",
     currentTurn: 1,
     maxTurns: MAX_TURNS,
     riskLevel: roomData.riskLevel,
@@ -287,8 +282,7 @@ export async function joinRoom(roomId: string, userId: string, userDisplayName: 
 
       if (roomData.playerIds.includes(userId)) {
         console.warn(`User ${userId} is already in room ${roomId}.`);
-        // If game exists and user is part of it, allow re-entry by returning gameId
-        return roomData.gameId || roomId; // Return roomId to navigate to game/lobby
+        return roomData.gameId || roomId; 
       }
 
       if (roomData.playerIds.length >= 2) {
@@ -308,17 +302,24 @@ export async function joinRoom(roomId: string, userId: string, userDisplayName: 
       };
       let newGameId: string | null = null;
 
-      // This is the second player joining
-      newGameId = await createGameFromRoomTransaction(transaction, roomId, roomData, hostProfile, joiningUserProfile);
-      transaction.update(roomRef, {
-        playerIds: updatedPlayerIds,
-        playerDisplayNames: updatedPlayerDisplayNames,
-        status: "IN_GAME",
-        gameId: newGameId,
-        updatedAt: serverTimestamp(),
-      });
+      if (updatedPlayerIds.length === 2) { // Second player joining, create the game
+        newGameId = await createGameFromRoomTransaction(transaction, roomId, roomData, hostProfile, joiningUserProfile);
+        transaction.update(roomRef, {
+          playerIds: updatedPlayerIds,
+          playerDisplayNames: updatedPlayerDisplayNames,
+          status: "IN_GAME",
+          gameId: newGameId,
+          updatedAt: serverTimestamp(),
+        });
+      } else { // This case should ideally not be hit if the first player creates the room correctly
+         transaction.update(roomRef, {
+            playerIds: updatedPlayerIds,
+            playerDisplayNames: updatedPlayerDisplayNames,
+            updatedAt: serverTimestamp(),
+        });
+      }
       
-      return newGameId; // This will be the gameId
+      return newGameId || roomId; // Return gameId if created, otherwise roomId for lobby
     });
   } catch (error: any) {
     console.error(`Error joining room ${roomId} for user ${userId}:`, error);
@@ -328,27 +329,45 @@ export async function joinRoom(roomId: string, userId: string, userDisplayName: 
 
 export async function deleteRoom(roomId: string, userId: string): Promise<void> {
     const roomRef = doc(db, ROOMS_COLLECTION, roomId);
-    const gameRef = doc(db, GAMES_COLLECTION, roomId); // Assuming gameId is same as roomId
+    // Game ID is the same as Room ID
+    const gameRef = doc(db, GAMES_COLLECTION, roomId); 
 
     try {
         await runTransaction(db, async (transaction) => {
             const roomSnap = await transaction.get(roomRef);
             if (!roomSnap.exists()) {
-                throw new Error("Room not found or already deleted.");
+                // If room doesn't exist, it might have been already deleted.
+                // Check if a game document exists and delete it if user is host.
+                const gameSnap = await transaction.get(gameRef);
+                if (gameSnap.exists()) {
+                    const gameState = gameSnap.data() as GameState;
+                    // Find host from game state if possible, or assume only creator can delete orphaned games.
+                    // This logic might need refinement based on how/when games are created vs rooms.
+                    // For now, if room is gone, and user is trying to delete based on roomId,
+                    // and game exists, let's assume they were host of related room.
+                    // A stricter check would be needed if game could be created without room.createdBy.
+                    if (gameState.playerIds.includes(userId)) { // Basic check, ideally check if userId was original room creator
+                         transaction.delete(gameRef);
+                    }
+                }
+                // console.log(`Room ${roomId} not found, likely already deleted.`);
+                return; // Exit if room not found.
             }
             const roomData = roomSnap.data() as Room;
 
             if (roomData.createdBy !== userId) {
                 throw new Error("Only the host can delete the room.");
             }
+            // Allow deletion even if IN_GAME, but this means the game is aborted.
+            // Or, strictly prevent as before:
             if (roomData.status === "IN_GAME") {
-                throw new Error("Cannot delete a room once the game has started.");
+                 throw new Error("Cannot delete a room once the game has started. Abort the game instead if needed.");
             }
 
-            // Delete the room document
+
             transaction.delete(roomRef);
 
-            // If a game document was somehow created (shouldn't be if status is WAITING), delete it too.
+            // Also delete the associated game document if it exists
             const gameSnap = await transaction.get(gameRef);
             if (gameSnap.exists()) {
                 transaction.delete(gameRef);
@@ -397,7 +416,7 @@ export async function processTurn(gameId: string): Promise<void> {
       if (!gameSnap.exists()) throw new Error("Game not found for processing.");
       let gameState = gameSnap.data() as GameState;
 
-      if (gameState.status !== "CHOOSING_ACTIONS" && gameState.status !== "PROCESSING_TURN") { // Allow re-processing if stuck
+      if (gameState.status !== "CHOOSING_ACTIONS" && gameState.status !== "PROCESSING_TURN") {
           console.warn(`Turn processing called for game ${gameId} but status is ${gameState.status}. Attempting to proceed if actions submitted.`);
       }
       
@@ -413,18 +432,15 @@ export async function processTurn(gameId: string): Promise<void> {
 
       if (!player1.currentAction || !player2.currentAction || !player1.hasSubmittedAction || !player2.hasSubmittedAction) {
         console.log("Turn processing skipped for game:", gameId, "Not all players have submitted actions.");
-        // Ensure status is CHOOSING_ACTIONS if it was stuck
         if(gameState.status === "PROCESSING_TURN") {
             transaction.update(gameDocRef, { status: "CHOOSING_ACTIONS", updatedAt: serverTimestamp() });
         }
         return;
       }
       
-      // Mark as processing if it's not already
       if (gameState.status === "CHOOSING_ACTIONS") {
         transaction.update(gameDocRef, { status: "PROCESSING_TURN", updatedAt: serverTimestamp() });
-        // Get the updated state for processing
-        const updatedGameSnap = await transaction.get(gameDocRef); // Re-fetch after initial update
+        const updatedGameSnap = await transaction.get(gameDocRef);
         if (!updatedGameSnap.exists()) throw new Error("Game disappeared during processing update.");
         gameState = updatedGameSnap.data() as GameState;
       }
@@ -444,78 +460,64 @@ export async function processTurn(gameId: string): Promise<void> {
       const turnEffects: TurnResult['effects'] = [];
 
       const riskMultipliers = RISK_LEVEL_EFFECTS[gameState.riskLevel];
-      const p1AttackUpgradeBonus = (player1.initialAttackLevel - 1) * 0.02; // 0% for L1, 2% for L2, 4% for L3
+      const p1AttackUpgradeBonus = (player1.initialAttackLevel - 1) * 0.02;
       const p2AttackUpgradeBonus = (player2.initialAttackLevel - 1) * 0.02;
       const p1DefenseUpgradeBonus = (player1.initialDefenseLevel - 1) * 0.02;
       const p2DefenseUpgradeBonus = (player2.initialDefenseLevel - 1) * 0.02;
 
 
-      // --- Player 1 attacks Player 2 ---
-      let p1AttackBlocked = false;
+      let p1ResourceChangeForTarget = { gold: 0, military: 0, resources: 0 }; // Resource change ON P2 due to P1's attack
+      let p1AttackerGain = { gold: 0, military: 0, resources: 0 }; // What P1 gains
+
       if ( (p1Action.attack === AttackType.RAID_CAMP && p2Action.defense === DefenseType.BARRICADE_TROOPS) ||
            (p1Action.attack === AttackType.RESOURCE_HIJACK && p2Action.defense === DefenseType.SECURE_STORAGE) ||
            (p1Action.attack === AttackType.VAULT_BREAK && p2Action.defense === DefenseType.GOLD_SENTINEL) ) {
-        p1AttackBlocked = true;
-      }
-
-      let p1ResourceChange = { gold: 0, military: 0, resources: 0 };
-      let p1AttackerGain = { gold: 0, military: 0, resources: 0 };
-
-      if (p1AttackBlocked) {
         let penalty = 0;
         let message = `${player1.displayName}'s ${p1Action.attack} was blocked by ${player2.displayName}'s ${p2Action.defense}.`;
-        if (p1Action.attack === AttackType.RAID_CAMP) { penalty = Math.round(player1.military * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewMilitary -= penalty; p1ResourceChange.military = -penalty; }
-        else if (p1Action.attack === AttackType.RESOURCE_HIJACK) { penalty = Math.round(player1.resources * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewResources -= penalty; p1ResourceChange.resources = -penalty; }
-        else if (p1Action.attack === AttackType.VAULT_BREAK) { penalty = Math.round(player1.gold * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewGold -= penalty; p1ResourceChange.gold = -penalty; }
+        const penaltyForAttacker = { gold: 0, military: 0, resources: 0 };
+        if (p1Action.attack === AttackType.RAID_CAMP) { penalty = Math.round(player1.military * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewMilitary -= penalty; penaltyForAttacker.military = -penalty; }
+        else if (p1Action.attack === AttackType.RESOURCE_HIJACK) { penalty = Math.round(player1.resources * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewResources -= penalty; penaltyForAttacker.resources = -penalty; }
+        else if (p1Action.attack === AttackType.VAULT_BREAK) { penalty = Math.round(player1.gold * BLOCKED_ATTACK_PENALTY_PERCENT); p1NewGold -= penalty; penaltyForAttacker.gold = -penalty; }
         message += ` ${player1.displayName} loses ${penalty} of the targeted category.`;
-        turnEffects.push({ actingPlayerId: p1Id, targetPlayerId: p2Id, actionType: 'ATTACK', attackType: p1Action.attack, defenseType: p2Action.defense, isBlocked: true, resourceChanges: {}, attackerResourceGains: p1ResourceChange, message });
-      } else { // P1 Attack Successful
+        turnEffects.push({ actingPlayerId: p1Id, targetPlayerId: p2Id, actionType: 'ATTACK', attackType: p1Action.attack, defenseType: p2Action.defense, isBlocked: true, resourceChanges: {}, attackerResourceGains: penaltyForAttacker, message });
+      } else { 
         let lossAmount = 0;
-        let targetCategoryValue = 0;
         let message = `${player1.displayName}'s ${p1Action.attack} succeeded against ${player2.displayName}!`;
-        const baseLossPercent = riskMultipliers.lossPercent + p1AttackUpgradeBonus - p2DefenseUpgradeBonus;
+        const baseLossPercent = Math.max(0.01, riskMultipliers.lossPercent + p1AttackUpgradeBonus - p2DefenseUpgradeBonus);
         
-        if (p1Action.attack === AttackType.RAID_CAMP) { targetCategoryValue = player2.military; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p2NewMilitary -= lossAmount; p2ResourceChange.military = -lossAmount; p1AttackerGain.military = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewMilitary += p1AttackerGain.military; }
-        else if (p1Action.attack === AttackType.RESOURCE_HIJACK) { targetCategoryValue = player2.resources; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p2NewResources -= lossAmount; p2ResourceChange.resources = -lossAmount; p1AttackerGain.resources = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewResources += p1AttackerGain.resources; }
-        else if (p1Action.attack === AttackType.VAULT_BREAK) { targetCategoryValue = player2.gold; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p2NewGold -= lossAmount; p2ResourceChange.gold = -lossAmount; p1AttackerGain.gold = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewGold += p1AttackerGain.gold; }
-        message += ` ${player2.displayName} loses ${lossAmount}. ${player1.displayName} gains a share.`;
-        turnEffects.push({ actingPlayerId: p1Id, targetPlayerId: p2Id, actionType: 'ATTACK', attackType: p1Action.attack, defenseType: p2Action.defense, isBlocked: false, resourceChanges: p2ResourceChange, attackerResourceGains: p1AttackerGain, message });
+        if (p1Action.attack === AttackType.RAID_CAMP) { lossAmount = Math.round(player2.military * baseLossPercent); p2NewMilitary -= lossAmount; p1ResourceChangeForTarget.military = -lossAmount; p1AttackerGain.military = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewMilitary += p1AttackerGain.military; }
+        else if (p1Action.attack === AttackType.RESOURCE_HIJACK) { lossAmount = Math.round(player2.resources * baseLossPercent); p2NewResources -= lossAmount; p1ResourceChangeForTarget.resources = -lossAmount; p1AttackerGain.resources = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewResources += p1AttackerGain.resources; }
+        else if (p1Action.attack === AttackType.VAULT_BREAK) { lossAmount = Math.round(player2.gold * baseLossPercent); p2NewGold -= lossAmount; p1ResourceChangeForTarget.gold = -lossAmount; p1AttackerGain.gold = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p1NewGold += p1AttackerGain.gold; }
+        message += ` ${player2.displayName} loses ${lossAmount}. ${player1.displayName} gains ${p1AttackerGain.gold || p1AttackerGain.military || p1AttackerGain.resources}.`;
+        turnEffects.push({ actingPlayerId: p1Id, targetPlayerId: p2Id, actionType: 'ATTACK', attackType: p1Action.attack, defenseType: p2Action.defense, isBlocked: false, resourceChanges: p1ResourceChangeForTarget, attackerResourceGains: p1AttackerGain, message });
       }
 
-      // --- Player 2 attacks Player 1 ---
-      let p2AttackBlocked = false;
+      let p2ResourceChangeForTarget = { gold: 0, military: 0, resources: 0 }; // Resource change ON P1 due to P2's attack
+      let p2AttackerGain = { gold: 0, military: 0, resources: 0 }; // What P2 gains
+
       if ( (p2Action.attack === AttackType.RAID_CAMP && p1Action.defense === DefenseType.BARRICADE_TROOPS) ||
            (p2Action.attack === AttackType.RESOURCE_HIJACK && p1Action.defense === DefenseType.SECURE_STORAGE) ||
            (p2Action.attack === AttackType.VAULT_BREAK && p1Action.defense === DefenseType.GOLD_SENTINEL) ) {
-        p2AttackBlocked = true;
-      }
-      
-      let p2ResourceChange = { gold: 0, military: 0, resources: 0 }; // Changes for P1 due to P2's attack
-      let p2AttackerGain = { gold: 0, military: 0, resources: 0 }; // Gains for P2
-
-      if (p2AttackBlocked) {
         let penalty = 0;
         let message = `${player2.displayName}'s ${p2Action.attack} was blocked by ${player1.displayName}'s ${p1Action.defense}.`;
-        if (p2Action.attack === AttackType.RAID_CAMP) { penalty = Math.round(player2.military * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewMilitary -= penalty; p2ResourceChange.military = -penalty; } // Penalty on P2
-        else if (p2Action.attack === AttackType.RESOURCE_HIJACK) { penalty = Math.round(player2.resources * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewResources -= penalty; p2ResourceChange.resources = -penalty; }
-        else if (p2Action.attack === AttackType.VAULT_BREAK) { penalty = Math.round(player2.gold * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewGold -= penalty; p2ResourceChange.gold = -penalty; }
+        const penaltyForAttacker = { gold: 0, military: 0, resources: 0 };
+        if (p2Action.attack === AttackType.RAID_CAMP) { penalty = Math.round(player2.military * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewMilitary -= penalty; penaltyForAttacker.military = -penalty; }
+        else if (p2Action.attack === AttackType.RESOURCE_HIJACK) { penalty = Math.round(player2.resources * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewResources -= penalty; penaltyForAttacker.resources = -penalty; }
+        else if (p2Action.attack === AttackType.VAULT_BREAK) { penalty = Math.round(player2.gold * BLOCKED_ATTACK_PENALTY_PERCENT); p2NewGold -= penalty; penaltyForAttacker.gold = -penalty; }
         message += ` ${player2.displayName} loses ${penalty} of the targeted category.`;
-        turnEffects.push({ actingPlayerId: p2Id, targetPlayerId: p1Id, actionType: 'ATTACK', attackType: p2Action.attack, defenseType: p1Action.defense, isBlocked: true, resourceChanges: {}, attackerResourceGains: p2ResourceChange, message });
-      } else { // P2 Attack Successful
+        turnEffects.push({ actingPlayerId: p2Id, targetPlayerId: p1Id, actionType: 'ATTACK', attackType: p2Action.attack, defenseType: p1Action.defense, isBlocked: true, resourceChanges: {}, attackerResourceGains: penaltyForAttacker, message });
+      } else { 
         let lossAmount = 0;
-        let targetCategoryValue = 0;
         let message = `${player2.displayName}'s ${p2Action.attack} succeeded against ${player1.displayName}!`;
-        const baseLossPercent = riskMultipliers.lossPercent + p2AttackUpgradeBonus - p1DefenseUpgradeBonus;
+        const baseLossPercent = Math.max(0.01, riskMultipliers.lossPercent + p2AttackUpgradeBonus - p1DefenseUpgradeBonus);
 
-        // P1 is the target here
-        if (p2Action.attack === AttackType.RAID_CAMP) { targetCategoryValue = p1NewMilitary; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p1NewMilitary -= lossAmount; p1ResourceChange.military = (p1ResourceChange.military || 0) - lossAmount; p2AttackerGain.military = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewMilitary += p2AttackerGain.military; }
-        else if (p2Action.attack === AttackType.RESOURCE_HIJACK) { targetCategoryValue = p1NewResources; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p1NewResources -= lossAmount; p1ResourceChange.resources = (p1ResourceChange.resources || 0) - lossAmount; p2AttackerGain.resources = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewResources += p2AttackerGain.resources; }
-        else if (p2Action.attack === AttackType.VAULT_BREAK) { targetCategoryValue = p1NewGold; lossAmount = Math.round(targetCategoryValue * Math.max(0, baseLossPercent)); p1NewGold -= lossAmount; p1ResourceChange.gold = (p1ResourceChange.gold || 0) - lossAmount; p2AttackerGain.gold = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewGold += p2AttackerGain.gold; }
-        message += ` ${player1.displayName} loses ${lossAmount}. ${player2.displayName} gains a share.`;
-        turnEffects.push({ actingPlayerId: p2Id, targetPlayerId: p1Id, actionType: 'ATTACK', attackType: p2Action.attack, defenseType: p1Action.defense, isBlocked: false, resourceChanges: p1ResourceChange, attackerResourceGains: p2AttackerGain, message });
+        if (p2Action.attack === AttackType.RAID_CAMP) { lossAmount = Math.round(p1NewMilitary * baseLossPercent); p1NewMilitary -= lossAmount; p2ResourceChangeForTarget.military = -lossAmount; p2AttackerGain.military = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewMilitary += p2AttackerGain.military; }
+        else if (p2Action.attack === AttackType.RESOURCE_HIJACK) { lossAmount = Math.round(p1NewResources * baseLossPercent); p1NewResources -= lossAmount; p2ResourceChangeForTarget.resources = -lossAmount; p2AttackerGain.resources = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewResources += p2AttackerGain.resources; }
+        else if (p2Action.attack === AttackType.VAULT_BREAK) { lossAmount = Math.round(p1NewGold * baseLossPercent); p1NewGold -= lossAmount; p2ResourceChangeForTarget.gold = -lossAmount; p2AttackerGain.gold = Math.round(lossAmount * SUCCESSFUL_ATTACK_GAIN_SHARE_PERCENT); p2NewGold += p2AttackerGain.gold; }
+        message += ` ${player1.displayName} loses ${lossAmount}. ${player2.displayName} gains ${p2AttackerGain.gold || p2AttackerGain.military || p2AttackerGain.resources}.`;
+        turnEffects.push({ actingPlayerId: p2Id, targetPlayerId: p1Id, actionType: 'ATTACK', attackType: p2Action.attack, defenseType: p1Action.defense, isBlocked: false, resourceChanges: p2ResourceChangeForTarget, attackerResourceGains: p2AttackerGain, message });
       }
       
-      // Ensure resources don't go below 0 visually, though the check is against 50 for loss
       p1NewGold = Math.max(0, p1NewGold); p1NewMilitary = Math.max(0, p1NewMilitary); p1NewResources = Math.max(0, p1NewResources);
       p2NewGold = Math.max(0, p2NewGold); p2NewMilitary = Math.max(0, p2NewMilitary); p2NewResources = Math.max(0, p2NewResources);
       
@@ -540,31 +542,35 @@ export async function processTurn(gameId: string): Promise<void> {
         updatedAt: serverTimestamp(),
       };
 
-      // Check for game over conditions
       const p1Lost = p1NewGold < 50 || p1NewMilitary < 50 || p1NewResources < 50;
       const p2Lost = p2NewGold < 50 || p2NewMilitary < 50 || p2NewResources < 50;
       let gameOver = false;
+      let winnerId: string | "DRAW" | null = null;
+      let winningCondition: string | undefined = undefined;
+
 
       if (p1Lost && p2Lost) {
-        updates.status = "GAME_OVER"; updates.winnerId = "DRAW"; updates.winningCondition = "Both players fell below resource threshold."; gameOver = true;
+        winnerId = "DRAW"; winningCondition = "Both players fell below resource threshold."; gameOver = true;
       } else if (p1Lost) {
-        updates.status = "GAME_OVER"; updates.winnerId = p2Id; updates.winningCondition = `${player1.displayName} fell below resource threshold.`; gameOver = true;
+        winnerId = p2Id; winningCondition = `${player1.displayName} fell below resource threshold.`; gameOver = true;
       } else if (p2Lost) {
-        updates.status = "GAME_OVER"; updates.winnerId = p1Id; updates.winningCondition = `${player2.displayName} fell below resource threshold.`; gameOver = true;
+        winnerId = p1Id; winningCondition = `${player2.displayName} fell below resource threshold.`; gameOver = true;
       } else if (gameState.currentTurn + 1 > MAX_TURNS) {
-         updates.status = "GAME_OVER";
          const p1Total = p1NewGold + p1NewMilitary + p1NewResources;
          const p2Total = p2NewGold + p2NewMilitary + p2NewResources;
-         if (p1Total > p2Total) updates.winnerId = p1Id;
-         else if (p2Total > p1Total) updates.winnerId = p2Id;
-         else updates.winnerId = "DRAW";
-         updates.winningCondition = "Max turns reached.";
+         if (p1Total > p2Total) winnerId = p1Id;
+         else if (p2Total > p1Total) winnerId = p2Id;
+         else winnerId = "DRAW";
+         winningCondition = "Max turns reached. Highest total resources wins.";
          gameOver = true;
       }
       
       if (gameOver) {
+        updates.status = "GAME_OVER";
+        updates.winnerId = winnerId;
+        updates.winningCondition = winningCondition;
         updates.endedAt = serverTimestamp();
-        // Fetch user profiles to update
+        
         const p1ProfileSnap = await transaction.get(doc(db, USER_COLLECTION, p1Id));
         const p2ProfileSnap = await transaction.get(doc(db, USER_COLLECTION, p2Id));
         if (!p1ProfileSnap.exists() || !p2ProfileSnap.exists()) throw new Error("One or more player profiles not found for game end update.");
@@ -572,24 +578,21 @@ export async function processTurn(gameId: string): Promise<void> {
         const p1GameUser = buildGameUserFromData(p1Id, p1ProfileSnap.data());
         const p2GameUser = buildGameUserFromData(p2Id, p2ProfileSnap.data());
 
-        const p1ProfileUpdate: Partial<GameUser> = { updatedAt: serverTimestamp() };
-        const p2ProfileUpdate: Partial<GameUser> = { updatedAt: serverTimestamp() };
+        const p1ProfileUpdate: Partial<GameUser> & {updatedAt: FieldValue} = { updatedAt: serverTimestamp() };
+        const p2ProfileUpdate: Partial<GameUser> & {updatedAt: FieldValue} = { updatedAt: serverTimestamp() };
 
-        if (updates.winnerId === p1Id) {
+        if (winnerId === p1Id) {
           p1ProfileUpdate.wins = (p1GameUser.wins || 0) + 1;
           p2ProfileUpdate.losses = (p2GameUser.losses || 0) + 1;
           if (p2Lost) { p2ProfileUpdate.inRecoveryMode = true; p2ProfileUpdate.recoveryProgress = { successfulAttacks: 0, successfulDefenses: 0 }; }
-        } else if (updates.winnerId === p2Id) {
+        } else if (winnerId === p2Id) {
           p2ProfileUpdate.wins = (p2GameUser.wins || 0) + 1;
           p1ProfileUpdate.losses = (p1GameUser.losses || 0) + 1;
           if (p1Lost) { p1ProfileUpdate.inRecoveryMode = true; p1ProfileUpdate.recoveryProgress = { successfulAttacks: 0, successfulDefenses: 0 }; }
         }
-        // No specific handling for DRAW stats currently
         
         transaction.update(doc(db, USER_COLLECTION, p1Id), p1ProfileUpdate);
         transaction.update(doc(db, USER_COLLECTION, p2Id), p2ProfileUpdate);
-
-        // Update Room status to CLOSED
         transaction.update(doc(db, ROOMS_COLLECTION, gameId), { status: "CLOSED", updatedAt: serverTimestamp() });
       }
       transaction.update(gameDocRef, updates);
@@ -611,7 +614,7 @@ export async function getGame(gameId: string): Promise<GameState | null> {
     const gameSnap = await getDoc(gameDocRef);
     if (gameSnap.exists()) {
         const data = gameSnap.data();
-        return { id: gameSnap.id, ...data } as GameState; // Ensure id is included
+        return { id: gameSnap.id, ...data } as GameState;
     }
     return null;
 }
@@ -624,3 +627,6 @@ export async function getRoom(roomId: string): Promise<Room | null> {
     }
     return null;
 }
+
+
+    

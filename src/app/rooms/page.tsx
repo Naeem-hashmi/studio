@@ -12,7 +12,7 @@ import CreateRoomDialog from "@/components/rooms/CreateRoomDialog";
 import RoomListItem from "@/components/rooms/RoomListItem";
 import type { Room } from "@/types";
 import { db } from "@/lib/firebase";
-import { collection, query, where, onSnapshot, orderBy, getDocs } from "firebase/firestore"; // Added getDocs
+import { collection, query, where, onSnapshot, orderBy, getDocs } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { joinRoom as joinRoomAction } from "@/lib/firestoreActions";
 
@@ -46,6 +46,9 @@ export default function RoomsPage() {
         ...doc.data(),
       } as Room));
       setPublicRooms(roomsData);
+      if (roomsData.length === 0) {
+        // toast({ title: "No Rooms", description: "No public rooms currently available." });
+      }
     } catch (error) {
       console.error("Error fetching public rooms manually:", error);
       setRoomsError("Could not refresh public rooms. Please try again later.");
@@ -109,16 +112,17 @@ export default function RoomsPage() {
 
     setJoiningRoomId(roomId);
     try {
+      // joinRoomAction now returns the gameId (which is the roomId) if successful
       const gameId = await joinRoomAction(roomId, firebaseUser.uid, gameUser.displayName || firebaseUser.email || "Anonymous Commander");
       if (gameId) {
-        toast({ title: "Joined Room & Game Started!", description: "Redirecting to the battlefield..." });
-        router.push(`/game/${gameId}`); // gameId is the roomId which now also serves as gameId
+         toast({ title: "Joined Room!", description: "Redirecting to the game lobby..." });
+         router.push(`/game/${gameId}`); 
       } else {
-        // This case should ideally not happen if joinRoomAction always returns gameId on successful join by 2nd player
-        // Or it might mean the first player joined and is waiting.
-        // The game page will handle the lobby state.
-        toast({ title: "Joined Room!", description: "Waiting for game to fully initialize or opponent..." });
-        router.push(`/game/${roomId}`); // Navigate to the room/game lobby
+        // This case implies the first player joined their own room and is waiting.
+        // It should ideally not happen if logic is correct and joinRoomAction always returns roomId.
+        // Or gameId if game starts.
+        toast({ title: "Room Joined", description: "Preparing the room..." });
+        router.push(`/game/${roomId}`); // Navigate to the room which acts as game lobby
       }
     } catch (error: any) {
       toast({ variant: "destructive", title: "Failed to Join Room", description: error.message || "Could not join the room." });
@@ -240,9 +244,16 @@ export default function RoomsPage() {
             <CardContent className="flex flex-col items-center">
               <DoorOpen className="h-12 w-12 text-muted-foreground mb-3" />
               <p className="text-muted-foreground font-semibold text-lg">No Public Rooms Available</p>
-              <p className="text-muted-foreground/80 text-sm">
+              <p className="text-muted-foreground/80 text-sm mb-4">
                 Be the first to start a new battle! Click "Create New Room" to set up your arena.
               </p>
+              <Button
+                onClick={() => setIsCreateRoomOpen(true)}
+                disabled={gameUser?.inRecoveryMode}
+                aria-label="Create New Game Room"
+              >
+                <PlusCircle className="mr-2 h-5 w-5" /> Create New Room
+              </Button>
             </CardContent>
           </Card>
         ) : (
@@ -263,3 +274,5 @@ export default function RoomsPage() {
     </div>
   );
 }
+
+    
