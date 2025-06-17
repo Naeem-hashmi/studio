@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { useUser } from "@/hooks/useUser";
-import { Swords, Users, Bot, AlertTriangle, Loader2, GraduationCap, Eye, RefreshCw, ArrowUpCircle, Shield, Axe } from "lucide-react";
+import { Swords, Users, Bot, AlertTriangle, Loader2, GraduationCap, Eye, RefreshCw, ArrowUpCircle, Shield, Axe, UserPlus, HelpCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { performStatUpgrade } from "@/lib/firestoreActions"; // For upgrades
 
@@ -23,6 +23,7 @@ const DEFENSE_UPGRADE_COSTS: Record<number, { gold: number; military: number; re
 };
 
 const MAX_LEVEL = 3;
+const PROFILE_NOT_FOUND_ERROR_SUBSTRING = "Your game profile could not be loaded";
 
 export default function HomePage() {
   const { user: firebaseUser, loading: authLoading } = useAuth();
@@ -38,18 +39,8 @@ export default function HomePage() {
     }
   }, [firebaseUser, authLoading, router]);
 
-  useEffect(() => {
-    if (userError && userError.includes("Your game profile could not be loaded")) {
-      // Specific error check to redirect to setup if profile is definitively not found.
-      toast({
-        title: "Profile Not Found",
-        description: "Redirecting to profile setup.",
-        variant: "destructive",
-      });
-      router.replace("/setup-profile");
-    }
-  }, [userError, router, toast]);
-
+  // Removed the automatic redirect useEffect for "profile not found" error.
+  // It will be handled by the conditional rendering below.
 
   const handleUpgrade = async (statType: 'attack' | 'defense') => {
     if (!firebaseUser || !gameUser) return;
@@ -75,7 +66,6 @@ export default function HomePage() {
       else setIsUpgradingDefense(false);
     }
   };
-
 
   if (authLoading) {
     return (
@@ -103,18 +93,48 @@ export default function HomePage() {
     );
   }
 
-  if (userError && !userError.includes("Your game profile could not be loaded")) { // Avoid showing buttons if redirecting
+  // Specific handling for "Profile not found" error
+  if (userError && userError.includes(PROFILE_NOT_FOUND_ERROR_SUBSTRING)) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-6">
+        <Card className="w-full max-w-md shadow-lg">
+          <CardHeader>
+            <CardTitle className="text-2xl text-primary flex items-center justify-center">
+              <HelpCircle className="mr-2 h-8 w-8" /> Profile Assistance
+            </CardTitle>
+            <CardDescription className="text-muted-foreground pt-2">
+              We couldn&apos;t load your game profile. This can happen if you&apos;re new or due to a temporary connection issue.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-foreground">
+              Are you new to Tactical Echo? Or do you already have a profile?
+            </p>
+            <Button onClick={() => router.push('/setup-profile')} className="w-full">
+              <UserPlus className="mr-2 h-4 w-4" /> I&apos;m New / Create Profile
+            </Button>
+            <Button variant="outline" onClick={refreshUserProfile} className="w-full">
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry / Load Existing Profile
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // General error handling (if not the specific "profile not found" error)
+  if (userError) { 
      return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-8">
         <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
         <h2 className="text-2xl font-semibold text-destructive mb-2">Error Loading Profile</h2>
         <p className="text-muted-foreground mb-6 text-sm max-w-md">{userError}</p>
         <div className="flex gap-3">
-            <Button onClick={() => refreshUserProfile()}>
+            <Button onClick={refreshUserProfile}>
                 <RefreshCw className="mr-2 h-4 w-4" /> Try Again
             </Button>
              <Button variant="outline" onClick={() => router.push("/setup-profile")}>
-                Ensure Profile Setup
+                Set Up Profile
             </Button>
         </div>
       </div>
@@ -124,16 +144,18 @@ export default function HomePage() {
   if (!gameUser) {
     // This state implies loading has finished, no specific "profile not found" error for redirection,
     // but gameUser is still null. This might be a brief state or an unexpected issue.
-    // The useUser hook's error handling should ideally prevent prolonged stays here.
     return (
        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-6">
         <Loader2 className="h-12 w-12 animate-spin text-amber-500 mb-4" />
-        <p className="text-lg text-foreground mb-3">Finalizing profile setup...</p>
+        <p className="text-lg text-foreground mb-3">Finalizing profile...</p>
         <p className="text-sm text-muted-foreground mb-4 max-w-md">
-            Please wait a moment. If this persists, try refreshing.
+            Please wait a moment. If this persists, try refreshing or ensure your profile setup is complete.
         </p>
-        <Button onClick={refreshUserProfile}>
+        <Button onClick={refreshUserProfile} className="mr-2">
             <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+        </Button>
+         <Button variant="outline" onClick={() => router.push("/setup-profile")}>
+            Go to Setup
         </Button>
       </div>
     );
@@ -144,7 +166,7 @@ export default function HomePage() {
   const canUpgradeAttack = gameUser.attackLevel < MAX_LEVEL;
   const nextAttackLevel = gameUser.attackLevel + 1;
   const attackUpgradeCost = canUpgradeAttack ? ATTACK_UPGRADE_COSTS[nextAttackLevel] : null;
-  const đủ_điều_kiện_nâng_cấp_tấn_công = attackUpgradeCost && gameUser.gold >= attackUpgradeCost.gold && gameUser.military >= attackUpgradeCost.military && gameUser.resources >= attackUpgradeCost.resources;
+  const canAffordAttackUpgrade = attackUpgradeCost && gameUser.gold >= attackUpgradeCost.gold && gameUser.military >= attackUpgradeCost.military && gameUser.resources >= attackUpgradeCost.resources;
 
   const canUpgradeDefense = gameUser.defenseLevel < MAX_LEVEL;
   const nextDefenseLevel = gameUser.defenseLevel + 1;
@@ -259,8 +281,9 @@ export default function HomePage() {
                   )}
                   <Button 
                     onClick={() => handleUpgrade('attack')} 
-                    disabled={!canUpgradeAttack || !đủ_điều_kiện_nâng_cấp_tấn_công || isUpgradingAttack}
+                    disabled={!canUpgradeAttack || !canAffordAttackUpgrade || isUpgradingAttack}
                     className="w-full"
+                    aria-label={`Upgrade Attack to Level ${nextAttackLevel}`}
                   >
                     {isUpgradingAttack ? <Loader2 className="animate-spin" /> : <ArrowUpCircle className="mr-2 h-5 w-5" />}
                     Upgrade Attack to Lvl {nextAttackLevel}
@@ -292,6 +315,7 @@ export default function HomePage() {
                     onClick={() => handleUpgrade('defense')} 
                     disabled={!canUpgradeDefense || !canAffordDefenseUpgrade || isUpgradingDefense}
                     className="w-full"
+                    aria-label={`Upgrade Defense to Level ${nextDefenseLevel}`}
                   >
                     {isUpgradingDefense ? <Loader2 className="animate-spin" /> : <ArrowUpCircle className="mr-2 h-5 w-5" />}
                     Upgrade Defense to Lvl {nextDefenseLevel}
@@ -327,8 +351,14 @@ function GameModeCard({ title, description, icon, link, actionText, disabled, ar
       </CardHeader>
       <CardContent className="text-center">
         <CardDescription className="mb-6 min-h-[40px]">{description}</CardDescription>
-        <Link href={disabled ? "#" : link} passHref>
-          <Button className="w-full" disabled={disabled} aria-label={ariaLabel}>
+        <Link href={disabled ? "#" : link} passHref legacyBehavior={disabled ? true : false}>
+          <Button 
+            className="w-full" 
+            disabled={disabled} 
+            aria-label={ariaLabel}
+            tabIndex={disabled ? -1 : 0}
+            onClick={(e) => { if (disabled) e.preventDefault(); }}
+          >
             {actionText}
           </Button>
         </Link>
@@ -337,3 +367,4 @@ function GameModeCard({ title, description, icon, link, actionText, disabled, ar
   );
 }
 
+    
