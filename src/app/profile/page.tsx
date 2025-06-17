@@ -101,11 +101,11 @@ export default function ProfilePage() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--navbar-height,80px))] text-center p-4 md:p-8">
-        <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
+        <AlertTriangle className="h-16 w-16 text-destructive mb-4" aria-hidden="true" />
         <h2 className="text-2xl font-semibold text-destructive mb-2">Error Loading Profile</h2>
         <p className="text-muted-foreground mb-4">{error}</p>
         <Button onClick={refreshUserProfile}>
-          <RefreshCw className="mr-2 h-4 w-4" /> Try Again
+          <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" /> Try Again
         </Button>
       </div>
     );
@@ -119,7 +119,7 @@ export default function ProfilePage() {
         <div className="flex gap-2">
           <Button onClick={() => router.push('/setup-profile')} className="mt-4 mr-2">Go to Setup</Button>
           <Button onClick={refreshUserProfile} className="mt-4">
-            <RefreshCw className="mr-2 h-4 w-4" /> Refresh Profile
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" /> Refresh Profile
           </Button>
         </div>
       </div>
@@ -128,7 +128,7 @@ export default function ProfilePage() {
 
   const totalGames = gameUser.wins + gameUser.losses;
   const winRate = totalGames > 0 ? Math.round((gameUser.wins / totalGames) * 100) : 0;
-  const avatarAltText = gameUser.displayName ? `${gameUser.displayName}'s avatar` : "User avatar";
+  const avatarLabel = gameUser.displayName ? `${gameUser.displayName}'s avatar` : "User avatar";
 
 
   return (
@@ -136,8 +136,8 @@ export default function ProfilePage() {
       <Card className="w-full max-w-3xl mx-auto shadow-xl border-primary/20 overflow-hidden bg-card">
         <CardHeader className="bg-primary/10 p-4 md:p-6">
           <div className="flex flex-col items-center text-center sm:flex-row sm:items-start sm:text-left sm:space-x-4 space-y-3 sm:space-y-0">
-            <Avatar className="h-20 w-20 md:h-24 md:w-24 border-4 border-background shadow-lg" aria-label={avatarAltText}>
-              <AvatarImage src={firebaseUser?.photoURL || undefined} alt={avatarAltText} />
+            <Avatar className="h-20 w-20 md:h-24 md:w-24 border-4 border-background shadow-lg" aria-label={avatarLabel}>
+              <AvatarImage src={firebaseUser?.photoURL || undefined} alt={avatarLabel} />
               <AvatarFallback className="text-3xl md:text-4xl bg-primary/30 text-primary-foreground">
                 {gameUser.displayName ? gameUser.displayName.charAt(0).toUpperCase() : <UserCircle size={48} aria-label="Default user icon"/>}
               </AvatarFallback>
@@ -148,7 +148,7 @@ export default function ProfilePage() {
                 <Dialog open={isEditNameDialogOpen} onOpenChange={setIsEditNameDialogOpen}>
                   <DialogTrigger asChild>
                     <Button variant="ghost" size="icon" aria-label="Edit display name">
-                      <Pencil className="h-4 w-4 md:h-5 md:w-5 text-primary/70 hover:text-primary" />
+                      <Pencil className="h-4 w-4 md:h-5 md:w-5 text-primary/70 hover:text-primary" aria-hidden="true" />
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-[425px]">
@@ -251,11 +251,11 @@ export default function ProfilePage() {
                 </h3>
                 <div className="space-y-2.5">
                     <div>
-                        <p className="text-xs font-medium text-muted-foreground" aria-hidden="true">Successful Attacks: {gameUser.recoveryProgress.successfulAttacks} / 10</p>
+                        <p className="text-xs font-medium text-muted-foreground">Successful Attacks: {gameUser.recoveryProgress.successfulAttacks} / 10</p>
                         <Progress value={(gameUser.recoveryProgress.successfulAttacks / 10) * 100} className="h-2 mt-1" aria-label={`Successful attacks progress: ${gameUser.recoveryProgress.successfulAttacks} out of 10`} />
                     </div>
                     <div>
-                        <p className="text-xs font-medium text-muted-foreground" aria-hidden="true">Successful Defenses: {gameUser.recoveryProgress.successfulDefenses} / 10</p>
+                        <p className="text-xs font-medium text-muted-foreground">Successful Defenses: {gameUser.recoveryProgress.successfulDefenses} / 10</p>
                         <Progress value={(gameUser.recoveryProgress.successfulDefenses / 10) * 100} className="h-2 mt-1" aria-label={`Successful defenses progress: ${gameUser.recoveryProgress.successfulDefenses} out of 10`} />
                     </div>
                 </div>
@@ -280,8 +280,8 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value }) => (
       className: ((icon as React.ReactElement).props.className || "") + " h-6 w-6 mb-1", 
       "aria-hidden": "true" 
     })}
-    <p className="text-sm text-muted-foreground" aria-hidden="true">{label}</p>
-    <p className="text-lg md:text-xl font-semibold text-foreground" aria-hidden="true">{value}</p>
+    <p className="text-sm text-muted-foreground">{label}</p>
+    <p className="text-lg md:text-xl font-semibold text-foreground">{value}</p>
   </div>
 );
 
@@ -300,8 +300,8 @@ const ResourceItem: React.FC<ResourceItemProps> = ({ icon, label, value }) => (
       className: ((icon as React.ReactElement).props.className || "") + " h-5 w-5 sm:h-6 sm:w-6", 
       "aria-hidden": "true" 
     })}
-    <p className="text-base sm:text-lg font-bold text-primary" aria-hidden="true">{value}</p>
-    <p className="text-xs text-muted-foreground" aria-hidden="true">{label}</p>
+    <p className="text-base sm:text-lg font-bold text-primary">{value}</p>
+    <p className="text-xs text-muted-foreground">{label}</p>
   </div>
 );
 
@@ -320,8 +320,8 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
          })}
        </div>
       <div>
-        <p className="text-sm md:text-base font-medium text-foreground" aria-hidden="true">{label}</p>
-        <p className="text-lg md:text-xl font-semibold text-accent" aria-hidden="true">Level {value}</p>
+        <p className="text-sm md:text-base font-medium text-foreground">{label}</p>
+        <p className="text-lg md:text-xl font-semibold text-accent">Level {value}</p>
       </div>
     </div>
     <Progress
@@ -329,7 +329,7 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
         className="h-1.5 w-full [&>div]:bg-accent"
         aria-label={`Level ${value} of ${maxLevel} progress bar`}
     />
-     <p className="text-xs text-muted-foreground text-right mt-0.5" aria-hidden="true">
+     <p className="text-xs text-muted-foreground text-right mt-0.5">
        {value < maxLevel ? `Lvl ${value} / ${maxLevel}` : "MAX Level"}
      </p>
   </div>
@@ -337,3 +337,4 @@ const LevelCard: React.FC<LevelCardProps> = ({ icon, label, value, maxLevel }) =
     
 
     
+
