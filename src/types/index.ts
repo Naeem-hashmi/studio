@@ -1,4 +1,6 @@
 
+import type { Timestamp, FieldValue } from "firebase/firestore";
+
 export interface GameUser {
   uid: string;
   email: string | null;
@@ -36,23 +38,23 @@ export enum DefenseType {
 }
 
 export interface PlayerAction {
-  playerId: string; // Add playerId to associate action with a player
+  playerId: string; 
   attack: AttackType;
   defense: DefenseType;
 }
 
 export interface TurnResult {
   turnNumber: number;
-  playerActions: { [playerId: string]: PlayerAction }; // Actions submitted by each player for the turn
-  outcomeDetails: Array<{ // More detailed outcomes
+  playerActions: { [playerId: string]: PlayerAction }; 
+  outcomeDetails: Array<{ 
     attackerId: string;
     targetId: string;
     attackType: AttackType;
     defenseType: DefenseType;
     isBlocked: boolean;
-    message: string; // e.g., "Player1's Raid Camp was successful!", "Player2's Vault Break was blocked."
+    message: string; 
   }>;
-  resourceChanges: { // Delta changes for this turn
+  resourceChanges: { 
     [playerId: string]: { 
       gold?: number; 
       military?: number; 
@@ -60,53 +62,53 @@ export interface TurnResult {
       xpGained?: number; 
     }
   };
-  newResourceTotals?: { // Optional: snapshot of totals after this turn for easier history display
+  newResourceTotals?: { 
     [playerId: string]: { gold: number; military: number; resources: number; }
   };
 }
 
 export interface GameState {
-  id: string;
+  id: string; // Firestore document ID, could be same as roomId
   gameMode: GameMode;
-  players: { // Keyed by player UID
-    [playerId: string]: {
-      uid: string; // Firebase Auth UID
+  players: { 
+    [playerId: string]: { // Keyed by player UID
+      uid: string; 
       displayName: string | null;
-      initialAttackLevel: number;
-      initialDefenseLevel: number;
-      // Current resources are part of GameUser, but can be snapshotted here at game start if needed
-      // For simplicity, we'll mostly rely on GameUser for live stats.
-      // Game-specific state:
-      currentAction?: PlayerAction | null; // Player's submitted action for the current turn
+      initialAttackLevel: number; // Snapshot at game start
+      initialDefenseLevel: number; // Snapshot at game start
+      // Live resources will be fetched from GameUser, but could be snapshotted here if needed.
+      currentAction?: PlayerAction | null; 
       hasSubmittedAction: boolean;
-      isAI?: boolean; // Flag if this player is an AI
+      isAI?: boolean; 
+      // Specific to game instance:
+      gold: number; 
+      military: number;
+      resources: number;
     };
   };
-  playerIds: string[]; // Array of player UIDs in the game [player1Id, player2Id]
+  playerIds: [string, string]; // Tuple for exactly two players
   status: "WAITING_FOR_PLAYERS" | "CHOOSING_ACTIONS" | "PROCESSING_TURN" | "GAME_OVER" | "ABORTED";
   currentTurn: number;
-  maxTurns: number; // e.g., 20
+  maxTurns: number; 
   riskLevel: RiskLevel;
   turnHistory: TurnResult[];
   winnerId?: string | null; // UID of the winner, 'DRAW', or null if ongoing/aborted
-  winningCondition?: string; // e.g., "RESOURCE_DEPLETION", "MAX_TURNS_REACHED", "OPPONENT_RESIGNED"
-  createdAt: FieldValue | Timestamp; // Firestore serverTimestamp or Date
-  updatedAt: FieldValue | Timestamp;
-  // Optional fields based on game mode
-  roomId?: string; // If it's a room match
+  winningCondition?: string; 
+  createdAt: Timestamp | FieldValue; // Firestore serverTimestamp
+  updatedAt: Timestamp | FieldValue;
+  roomId: string; // Link back to the room this game originated from
 }
 
 export interface Room {
   id: string; // Firestore document ID
-  name: string; // User-defined room name (for public rooms)
+  name: string | null; // User-defined room name (for public rooms, can be null for private)
   riskLevel: RiskLevel;
   isPublic: boolean;
   createdBy: string; // UID of the player who created the room
-  hostDisplayName: string | null; // Display name of the host
-  status: "WAITING" | "FULL" | "IN_GAME" | "CLOSED"; // Room status
+  hostDisplayName: string | null; 
+  status: "WAITING" | "FULL" | "IN_GAME" | "CLOSED" | "ABORTED"; // Room status
   playerIds: string[]; // List of UIDs of players currently in the room (max 2)
   gameId?: string | null; // Associated gameId when a match starts
-  createdAt: FieldValue | Timestamp;
-  // For private rooms, an invite code might be useful (not implemented yet)
-  // inviteCode?: string; 
+  createdAt: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
 }

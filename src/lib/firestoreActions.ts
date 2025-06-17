@@ -1,22 +1,21 @@
 
 "use server";
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, Timestamp, FieldValue } from "firebase/firestore";
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp, runTransaction, Timestamp, FieldValue, collection, addDoc, query, where, getDocs, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { GameUser } from "@/types";
+import type { GameUser, Room, RiskLevel } from "@/types";
 import type { User as FirebaseUserType } from "firebase/auth";
 import { MAX_LEVEL, ATTACK_UPGRADE_COSTS, DEFENSE_UPGRADE_COSTS, RECOVERY_BASE_STATS } from "./gameConfig";
 
 const USER_COLLECTION = "users";
+const ROOMS_COLLECTION = "rooms";
 
 const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
-  console.log(`firestoreActions: buildGameUserFromData for ${userId}, raw input data:`, JSON.parse(JSON.stringify(data)));
-  
   const profile: GameUser = {
     uid: data.uid || userId,
     email: data.email !== undefined ? data.email : null,
     displayName: data.displayName !== undefined ? data.displayName : "Anonymous Warlord",
     photoURL: data.photoURL !== undefined ? data.photoURL : null,
-    gold: typeof data.gold === 'number' ? data.gold : RECOVERY_BASE_STATS.gold, // Default to recovery base if new
+    gold: typeof data.gold === 'number' ? data.gold : RECOVERY_BASE_STATS.gold,
     military: typeof data.military === 'number' ? data.military : RECOVERY_BASE_STATS.military,
     resources: typeof data.resources === 'number' ? data.resources : RECOVERY_BASE_STATS.resources,
     attackLevel: typeof data.attackLevel === 'number' ? data.attackLevel : 1,
@@ -32,24 +31,19 @@ const buildGameUserFromData = (userId: string, data: any = {}): GameUser => {
     rank: data.rank !== undefined ? data.rank : null,
     xp: typeof data.xp === 'number' ? data.xp : 0,
   };
-  console.log(`firestoreActions: Constructed GameUser for ${userId}:`, profile);
   return profile;
 };
 
 export async function getUserProfile(userId: string): Promise<GameUser | null> {
-  console.log(`firestoreActions: Attempting to get profile for ${userId}`);
   try {
     const userDocRef = doc(db, USER_COLLECTION, userId);
     const userDocSnap = await getDoc(userDocRef);
     if (userDocSnap.exists()) {
-      const rawData = userDocSnap.data();
-      console.log(`firestoreActions: Profile found for ${userId}`, rawData);
-      return buildGameUserFromData(userId, rawData);
+      return buildGameUserFromData(userId, userDocSnap.data());
     }
-    console.log(`firestoreActions: Profile NOT found for ${userId}`);
     return null;
   } catch (error) {
-    console.error(`firestoreActions: Error fetching user profile for ${userId}:`, error);
+    console.error(`Error fetching user profile for ${userId}:`, error);
     if (error instanceof Error) {
         throw new Error(`Firestore error getting profile for ${userId}: ${error.message}`);
     }
@@ -58,15 +52,12 @@ export async function getUserProfile(userId: string): Promise<GameUser | null> {
 }
 
 export async function createUserProfile(firebaseUser: FirebaseUserType): Promise<GameUser> {
-  console.log(`firestoreActions: createUserProfile initiated for ${firebaseUser.uid} with display name: ${firebaseUser.displayName}`);
   const userProfileRef = doc(db, USER_COLLECTION, firebaseUser.uid);
-
   try {
     const existingProfileSnap = await getDoc(userProfileRef);
     let finalDataForFirestore: { [key: string]: any };
     
     if (existingProfileSnap.exists()) {
-      console.log(`firestoreActions: Profile already exists for ${firebaseUser.uid}. Ensuring auth fields are current.`);
       const currentData = buildGameUserFromData(firebaseUser.uid, existingProfileSnap.data());
       const updates: { [key: string]: any | FieldValue } = {updatedAt: serverTimestamp()};
       let changed = false;
@@ -84,22 +75,13 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
          changed = true;
       }
       
-      if (changed) {
-        console.log(`firestoreActions: Auth fields changed for existing profile ${firebaseUser.uid}. Applying updates:`, updates);
-        finalDataForFirestore = updates;
-      } else {
-        console.log(`firestoreActions: No auth-related field changes needed for existing profile ${firebaseUser.uid}. Updating timestamp only.`);
-        finalDataForFirestore = { updatedAt: serverTimestamp() };
-      }
-       await updateDoc(userProfileRef, finalDataForFirestore);
+      finalDataForFirestore = changed ? updates : { updatedAt: serverTimestamp() };
+      await updateDoc(userProfileRef, finalDataForFirestore);
     } else {
-      console.log(`firestoreActions: Profile does not exist for ${firebaseUser.uid}. Creating new profile with defaults.`);
-      // Pass firebaseUser info to populate, buildGameUserFromData handles game-specific defaults.
       const newProfileData = buildGameUserFromData(firebaseUser.uid, {
         email: firebaseUser.email || null,
         displayName: firebaseUser.displayName || "Anonymous Warlord",
         photoURL: firebaseUser.photoURL || null,
-        // Ensure initial resources are set according to RECOVERY_BASE_STATS, not arbitrary values
         gold: RECOVERY_BASE_STATS.gold,
         military: RECOVERY_BASE_STATS.military,
         resources: RECOVERY_BASE_STATS.resources,
@@ -111,130 +93,172 @@ export async function createUserProfile(firebaseUser: FirebaseUserType): Promise
       };
       
       Object.keys(finalDataForFirestore).forEach(key => {
-        if (finalDataForFirestore[key] === undefined) {
-          finalDataForFirestore[key] = null; // Ensure undefined is not sent
-        }
+        if (finalDataForFirestore[key] === undefined) finalDataForFirestore[key] = null;
       });
-      console.log(`firestoreActions: Data to be set for new profile ${firebaseUser.uid}:`, finalDataForFirestore);
       await setDoc(userProfileRef, finalDataForFirestore);
     }
     
-    console.log(`firestoreActions: Successfully wrote profile data for ${firebaseUser.uid}.`);
-    
     const finalProfileSnap = await getDoc(userProfileRef);
-    if (!finalProfileSnap.exists()) {
-      console.error(`firestoreActions: CRITICAL - Profile for ${firebaseUser.uid} NOT FOUND after write operation.`);
-      throw new Error("Profile could not be retrieved after create/update operation.");
-    }
-    const finalData = finalProfileSnap.data();
-    console.log(`firestoreActions: Successfully re-fetched profile for ${firebaseUser.uid}. Data:`, finalData);
-    return buildGameUserFromData(firebaseUser.uid, finalData);
+    if (!finalProfileSnap.exists()) throw new Error("Profile could not be retrieved after create/update operation.");
+    return buildGameUserFromData(firebaseUser.uid, finalProfileSnap.data());
 
   } catch (error: any) {
-    console.error(`firestoreActions: Error in createUserProfile for ${firebaseUser.uid}:`, error);
-    console.error(`firestoreActions: Error stack:`, error.stack); 
-    if (error.code === 'invalid-argument' && error.message.includes('Unsupported field value: undefined')) {
-        console.error("firestoreActions: Attempted to write 'undefined' to Firestore. Check buildGameUserFromData defaults.");
-        throw new Error(`Profile creation failed: Invalid data. Original error: ${error.message}`);
-    }
-    throw new Error(`Failed to create or update user profile for ${firebaseUser.uid}: ${error.message || 'Unknown server error during profile operation.'}`);
+    console.error(`Error in createUserProfile for ${firebaseUser.uid}:`, error);
+    throw new Error(`Failed to create or update user profile for ${firebaseUser.uid}: ${error.message || 'Unknown server error.'}`);
   }
 }
 
 export async function updateUserProfile(userId: string, data: Partial<GameUser>): Promise<void> {
-  console.log(`firestoreActions: Updating profile for ${userId} with data:`, data);
   try {
     const userDocRef = doc(db, USER_COLLECTION, userId);
     const updateData: { [key: string]: any | FieldValue } = { ...data, updatedAt: serverTimestamp() };
-
     Object.keys(updateData).forEach(key => {
-      if (updateData[key] === undefined) {
-        // Firestore does not accept undefined. Convert to null or remove.
-        // For partial updates, removing might be better unless null has specific meaning.
-        // Let's convert to null to be safe if the field is intended to be cleared.
-        updateData[key] = null;
-      }
+      if (updateData[key] === undefined) updateData[key] = null;
     });
-    
     await updateDoc(userDocRef, updateData);
-    console.log(`firestoreActions: Successfully updated profile for ${userId}`);
   } catch (error) {
-    console.error(`firestoreActions: Error updating user profile for ${userId}:`, error);
-    if (error instanceof Error) {
-       throw new Error(`Failed to update user profile for ${userId}: ${error.message}`);
-    }
-    throw new Error(`Failed to update user profile for ${userId} due to an unknown server error.`);
+    console.error(`Error updating user profile for ${userId}:`, error);
+    if (error instanceof Error) throw new Error(`Failed to update user profile: ${error.message}`);
+    throw new Error(`Failed to update user profile due to an unknown server error.`);
   }
 }
 
 export async function performStatUpgrade(userId: string, statType: 'attack' | 'defense'): Promise<GameUser> {
-  console.log(`firestoreActions: Attempting to upgrade ${statType} for user ${userId}`);
   const userDocRef = doc(db, USER_COLLECTION, userId);
-
   try {
     await runTransaction(db, async (transaction) => {
       const userSnap = await transaction.get(userDocRef);
-      if (!userSnap.exists()) {
-        throw new Error("User profile not found. Cannot perform upgrade.");
-      }
+      if (!userSnap.exists()) throw new Error("User profile not found. Cannot perform upgrade.");
 
       const gameUser = buildGameUserFromData(userId, userSnap.data());
       let currentLevel: number;
-      let costsForNextLevel: { gold: number; resources: number; military?: number } | undefined;
+      let costsForNextLevel: { gold: number; resources: number; } | undefined; // Removed military cost
 
       if (statType === 'attack') {
         currentLevel = gameUser.attackLevel;
         costsForNextLevel = ATTACK_UPGRADE_COSTS[currentLevel + 1];
-      } else { // defense
+      } else {
         currentLevel = gameUser.defenseLevel;
         costsForNextLevel = DEFENSE_UPGRADE_COSTS[currentLevel + 1];
       }
 
-      if (currentLevel >= MAX_LEVEL) {
-        throw new Error(`Already at max ${statType} level.`);
-      }
-      if (!costsForNextLevel) {
-        throw new Error(`No upgrade cost defined for ${statType} level ${currentLevel + 1}. Please ensure MAX_LEVEL and cost definitions are aligned.`);
-      }
-
-      if (
-        gameUser.gold < costsForNextLevel.gold ||
-        gameUser.resources < costsForNextLevel.resources
-        // Military cost is now optional/removed for attack/defense upgrades as per game doc
-      ) {
+      if (currentLevel >= MAX_LEVEL) throw new Error(`Already at max ${statType} level.`);
+      if (!costsForNextLevel) throw new Error(`No upgrade cost defined for ${statType} level ${currentLevel + 1}.`);
+      if (gameUser.gold < costsForNextLevel.gold || gameUser.resources < costsForNextLevel.resources) {
         throw new Error("Insufficient Gold or Resources for upgrade.");
       }
 
       const updates: { [key: string]: any | FieldValue } = {
         gold: gameUser.gold - costsForNextLevel.gold,
         resources: gameUser.resources - costsForNextLevel.resources,
+        [statType === 'attack' ? 'attackLevel' : 'defenseLevel']: currentLevel + 1,
         updatedAt: serverTimestamp(),
       };
-
-      if (statType === 'attack') {
-        updates.attackLevel = currentLevel + 1;
-      } else {
-        updates.defenseLevel = currentLevel + 1;
-      }
-      
       transaction.update(userDocRef, updates);
     });
     
-    console.log(`firestoreActions: Successfully upgraded ${statType} for user ${userId}. Re-fetching for latest data.`);
     const finalProfileSnap = await getDoc(userDocRef);
-    if (!finalProfileSnap.exists()) {
-      throw new Error("Profile vanished after upgrade transaction. This is unexpected.");
-    }
+    if (!finalProfileSnap.exists()) throw new Error("Profile vanished after upgrade transaction.");
     return buildGameUserFromData(userId, finalProfileSnap.data());
 
   } catch (error: any) {
-    console.error(`firestoreActions: Error upgrading ${statType} for user ${userId}:`, error);
-    if (error.message === "User profile not found. Cannot perform upgrade." ||
+    console.error(`Error upgrading ${statType} for user ${userId}:`, error);
+    if (error.message.startsWith("User profile not found") ||
         error.message.startsWith("Already at max") ||
         error.message.startsWith("No upgrade cost defined") ||
-        error.message.startsWith("Insufficient Gold or Resources")) { // Updated error message
+        error.message.startsWith("Insufficient Gold or Resources")) {
         throw error;
     }
     throw new Error(`Failed to upgrade ${statType}. Please try again.`);
+  }
+}
+
+// Room Actions
+export async function createRoom(
+  userId: string,
+  hostDisplayName: string | null,
+  roomName: string,
+  riskLevel: RiskLevel,
+  isPublic: boolean
+): Promise<string> {
+  try {
+    const newRoomRef = await addDoc(collection(db, ROOMS_COLLECTION), {
+      name: roomName,
+      riskLevel,
+      isPublic,
+      createdBy: userId,
+      hostDisplayName: hostDisplayName || "Anonymous Host",
+      status: "WAITING", // Initial status
+      playerIds: [userId], // Host is the first player
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    } as Omit<Room, 'id'>);
+    return newRoomRef.id;
+  } catch (error: any) {
+    console.error("Error creating room:", error);
+    throw new Error(error.message || "Could not create the room on the server.");
+  }
+}
+
+export async function getPublicRooms(): Promise<Room[]> {
+  // This is a one-time fetch. For real-time, use onSnapshot on the client.
+  try {
+    const q = query(
+      collection(db, ROOMS_COLLECTION),
+      where("isPublic", "==", true),
+      where("status", "==", "WAITING"),
+      orderBy("createdAt", "desc")
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Room));
+  } catch (error: any) {
+    console.error("Error fetching public rooms:", error);
+    throw new Error(error.message || "Could not fetch public rooms.");
+  }
+}
+
+
+export async function joinRoom(roomId: string, userId: string, userDisplayName: string): Promise<void> {
+  const roomRef = doc(db, ROOMS_COLLECTION, roomId);
+  try {
+    await runTransaction(db, async (transaction) => {
+      const roomSnap = await transaction.get(roomRef);
+      if (!roomSnap.exists()) {
+        throw new Error("Room not found or has been closed.");
+      }
+      const roomData = roomSnap.data() as Room;
+
+      if (roomData.playerIds.includes(userId)) {
+        // User is already in the room (e.g., host rejoining somehow)
+        console.warn(`User ${userId} is already in room ${roomId}. No action taken for join.`);
+        return; // Or throw specific error if this shouldn't happen
+      }
+
+      if (roomData.playerIds.length >= 2) {
+        throw new Error("Room is already full.");
+      }
+      if (roomData.status !== "WAITING") {
+        throw new Error("Room is not available for joining (either full or in-game).");
+      }
+
+      const updatedPlayerIds = [...roomData.playerIds, userId];
+      const newStatus = updatedPlayerIds.length >= 2 ? "FULL" : "WAITING"; // Or "IN_GAME" if auto-starting
+
+      transaction.update(roomRef, {
+        playerIds: updatedPlayerIds,
+        status: newStatus,
+        updatedAt: serverTimestamp(),
+      });
+
+      // If room becomes full, potentially create a game state document here.
+      // For now, we just update the room. Game creation logic will be separate.
+      if (newStatus === "FULL") {
+        console.log(`Room ${roomId} is now full. Trigger game creation or set to IN_GAME if applicable.`);
+        // Placeholder: updateDoc(roomRef, { status: "IN_GAME" }); // if game starts automatically
+      }
+    });
+  } catch (error: any) {
+    console.error(`Error joining room ${roomId} for user ${userId}:`, error);
+    throw new Error(error.message || "Could not join the room due to a server error.");
   }
 }
